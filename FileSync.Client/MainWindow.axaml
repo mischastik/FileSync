@@ -1,0 +1,40 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="FileSync.Client.MainWindow"
+        Title="FileSync Client">
+    <StackPanel Margin="20" Spacing="10">
+        <TextBlock Text="FileSync Configuration" FontSize="18" FontWeight="Bold"/>
+        
+        <Grid ColumnDefinitions="Auto, *" RowDefinitions="Auto, Auto, Auto, Auto" Margin="0,10">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Server IP:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+            <TextBox Name="ServerIpBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,10"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Server Port:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+            <TextBox Name="ServerPortBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,10"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Server Public Key:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+            <TextBox Name="ServerKeyBox" Grid.Row="2" Grid.Column="1" Height="60" AcceptsReturn="True" Margin="0,0,0,10"/>
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Root Folder:" VerticalAlignment="Center" Margin="0,0,10,10"/>
+            <TextBox Name="RootPathBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,10"/>
+        </Grid>
+
+        <Button Name="SaveConfigButton" Content="Save Configuration" Click="OnSaveConfigClick"/>
+
+        <Separator Height="20"/>
+
+        <TextBlock Text="Actions" FontSize="18" FontWeight="Bold"/>
+        <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Name="SyncButton" Content="Synchronize" Click="OnSyncClick" Background="LightBlue"/>
+            <Button Name="UnregisterButton" Content="Unregister" Click="OnUnregisterClick" Background="Salmon"/>
+        </StackPanel>
+
+        <TextBlock Name="StatusText" Text="Ready" Margin="0,10"/>
+
+        <TextBlock Text="Local Files" FontSize="14" FontWeight="Bold" Margin="0,10,0,0"/>
+        <ListBox Name="FilesList" Height="150"/>
+    </StackPanel>
+</Window>
