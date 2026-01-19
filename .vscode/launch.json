@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Server",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/FileSync.Server/bin/Debug/net9.0/FileSync.Server.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/FileSync.Server",
+            "stopAtEntry": false,
+            "console": "internalConsole"
+        },
+        {
+            "name": "Launch Client",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/FileSync.Client/bin/Debug/net9.0/FileSync.Client.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/FileSync.Client",
+            "stopAtEntry": false,
+            "console": "internalConsole"
+        }
+    ]
+}

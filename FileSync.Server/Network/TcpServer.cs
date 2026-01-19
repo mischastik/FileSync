@@ -4,6 +4,7 @@ using System.Text.Json;
 using FileSync.Common.Security;
 using FileSync.Server.Config;
 using FileSync.Server.Data;
+using FileSync.Common.Protocol;
 
 namespace FileSync.Server.Network;
 
