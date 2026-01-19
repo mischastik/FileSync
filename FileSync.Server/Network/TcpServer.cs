@@ -143,7 +143,7 @@ public class TcpServer
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error handling client: {ex.Message}");
+                Console.WriteLine($"Error handling client: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
