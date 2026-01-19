@@ -8,16 +8,19 @@ using System.Text.Json;
 using FileSync.Common.Models;
 using FileSync.Common.Protocol;
 using FileSync.Client.Config;
+using FileSync.Client.Data;
 
 namespace FileSync.Client.Services;
 
 public class SyncService
 {
     private readonly ClientConfig _config;
+    private readonly Data.LocalState _localState;
 
     public SyncService(ClientConfig config)
     {
         _config = config;
+        _localState = new Data.LocalState(_config.RootPath);
     }
 
     public List<FileMetadata> ScanLocalFiles()
@@ -26,19 +29,40 @@ public class SyncService
         if (!Directory.Exists(_config.RootPath))
             Directory.CreateDirectory(_config.RootPath);
 
+        // 1. Scan current files
+        var currentFiles = new HashSet<string>();
         foreach (var file in Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories))
         {
             var info = new FileInfo(file);
             var relativePath = Path.GetRelativePath(_config.RootPath, file);
-            files.Add(new FileMetadata
+            currentFiles.Add(relativePath);
+
+            var meta = new FileMetadata
             {
                 RelativePath = relativePath,
                 LastWriteTimeUtc = info.LastWriteTimeUtc,
                 CreationTimeUtc = info.CreationTimeUtc,
                 Size = info.Length,
                 IsDeleted = false
-            });
+            };
+            files.Add(meta);
+            // Update known state
+            _localState.UpdateFile(meta); 
         }
+
+        // 2. Check for deletions (Files in KnownFiles but not on disk)
+        foreach (var known in _localState.KnownFiles.Values)
+        {
+            if (!currentFiles.Contains(known.RelativePath) && !known.IsDeleted)
+            {
+                // Found a deletion
+                known.IsDeleted = true;
+                known.LastWriteTimeUtc = DateTime.UtcNow; // Mark deletion time
+                _localState.UpdateFile(known);
+                files.Add(known);
+            }
+        }
+        
         return files;
     }
 

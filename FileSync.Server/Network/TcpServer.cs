@@ -68,6 +68,20 @@ public class TcpServer
                 {
                     // Logic: If client file is newer or new, request it.
                     var serverFile = serverFiles.FirstOrDefault(f => f.RelativePath == clientFile.RelativePath);
+                    
+                    if (clientFile.IsDeleted)
+                    {
+                        // Client says it's deleted. 
+                        // If we have it, delete it.
+                        if (serverFile != null)
+                        {
+                            var fullPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
+                            Console.WriteLine($"Deleting {clientFile.RelativePath} (Sync from Client)");
+                            if (File.Exists(fullPath)) File.Delete(fullPath);
+                        }
+                        continue;
+                    }
+
                     bool fetchFromClient = false;
 
                     if (serverFile == null)
