@@ -88,7 +88,10 @@ public partial class MainWindow : Window
         var displayList = new System.Collections.Generic.List<string>();
         foreach(var f in files)
         {
-            displayList.Add($"{f.RelativePath} ({f.Size} bytes)");
+            if (!f.IsDeleted)
+            {
+                displayList.Add($"{f.RelativePath} ({f.Size} bytes)");
+            }
         }
         FilesList.ItemsSource = displayList;
     }

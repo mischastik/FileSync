@@ -27,17 +27,34 @@ public class LocalState
             try 
             {
                 var json = File.ReadAllText(_statePath);
-                KnownFiles = JsonSerializer.Deserialize<Dictionary<string, FileMetadata>>(_statePath) ?? new();
+                KnownFiles = JsonSerializer.Deserialize<Dictionary<string, FileMetadata>>(json) ?? new();
+                Console.WriteLine($"[LocalState] Loaded {KnownFiles.Count} files from {_statePath}");
             }
-            catch { KnownFiles = new(); }
+            catch (Exception ex) 
+            { 
+                Console.WriteLine($"[LocalState] Error loading state: {ex.Message}");
+                KnownFiles = new(); 
+            }
+        }
+        else
+        {
+             Console.WriteLine($"[LocalState] State file not found at {_statePath}");
         }
     }
 
     public void Save()
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(_statePath)!);
-        var json = JsonSerializer.Serialize(KnownFiles);
-        File.WriteAllText(_statePath, json);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_statePath)!);
+            var json = JsonSerializer.Serialize(KnownFiles);
+            File.WriteAllText(_statePath, json);
+            // Console.WriteLine($"[LocalState] Saved state to {_statePath}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LocalState] Error saving state: {ex.Message}");
+        }
     }
     
     public void UpdateFile(FileMetadata file)

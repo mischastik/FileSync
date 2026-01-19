@@ -64,6 +64,7 @@ public class TcpServer
                 var serverFiles = ScanServerFiles();
 
                 // Process Client's List
+                // Process Client's List
                 foreach (var clientFile in clientFiles)
                 {
                     // Logic: If client file is newer or new, request it.
@@ -72,12 +73,21 @@ public class TcpServer
                     if (clientFile.IsDeleted)
                     {
                         // Client says it's deleted. 
-                        // If we have it, delete it.
-                        if (serverFile != null)
+                        // Update DB to mark as deleted.
+                        if (serverFile == null || !serverFile.IsDeleted || clientFile.LastWriteTimeUtc > serverFile.LastWriteTimeUtc)
                         {
                             var fullPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
-                            Console.WriteLine($"Deleting {clientFile.RelativePath} (Sync from Client)");
-                            if (File.Exists(fullPath)) File.Delete(fullPath);
+                            if (File.Exists(fullPath)) 
+                            {
+                                Console.WriteLine($"Deleting {clientFile.RelativePath} (Sync from Client)");
+                                File.Delete(fullPath);
+                            }
+                            
+                            // Update DB
+                            clientFile.IsDeleted = true; // Ensure flag
+                            _db.UpdateFile(clientFile);
+                            // Update in-memory list so we send correct list back
+                            if (serverFile != null) serverFile.IsDeleted = true; 
                         }
                         continue;
                     }
@@ -87,10 +97,32 @@ public class TcpServer
                     if (serverFile == null)
                     {
                         fetchFromClient = true; // New file
+                        Console.WriteLine($"[Step1] New file from client: {clientFile.RelativePath}");
+                    }
+                    else if (serverFile.IsDeleted)
+                    {
+                        // Server has it marked as deleted.
+                        // Check timestamps.
+                        if (clientFile.LastWriteTimeUtc > serverFile.LastWriteTimeUtc)
+                        {
+                            // Client file is NEWER (re-created after deletion), so we fetch it.
+                            fetchFromClient = true;
+                            Console.WriteLine($"[Step1] Client file {clientFile.RelativePath} is newer ({clientFile.LastWriteTimeUtc}) than Server Tombstone ({serverFile.LastWriteTimeUtc}). Restoring.");
+                        }
+                        else
+                        {
+                            // Server deletion is newer (or same). Client has out-of-date file.
+                            Console.WriteLine($"[Step1] Ignoring {clientFile.RelativePath}: Server Tombstone ({serverFile.LastWriteTimeUtc}) >= Client ({clientFile.LastWriteTimeUtc})");
+                        }
                     }
                     else if (clientFile.LastWriteTimeUtc > serverFile.LastWriteTimeUtc)
                     {
                         fetchFromClient = true; // Newer on client
+                        Console.WriteLine($"[Step1] Update from client: {clientFile.RelativePath} (Client: {clientFile.LastWriteTimeUtc} > Server: {serverFile.LastWriteTimeUtc})");
+                    }
+                    else
+                    {
+                         Console.WriteLine($"[Step1] Ignoring {clientFile.RelativePath}: Server ({serverFile.LastWriteTimeUtc}) >= Client ({clientFile.LastWriteTimeUtc})");
                     }
 
                     if (fetchFromClient)
@@ -111,6 +143,9 @@ public class TcpServer
                             File.WriteAllBytes(localPath, resp.Payload);
                             File.SetLastWriteTimeUtc(localPath, clientFile.LastWriteTimeUtc);
                             Console.WriteLine($"Received {clientFile.RelativePath}");
+                            
+                            // Update DB
+                            _db.UpdateFile(clientFile);
                         }
                     }
                 }
@@ -164,23 +199,69 @@ public class TcpServer
 
     private List<Common.Models.FileMetadata> ScanServerFiles()
     {
-        var files = new List<Common.Models.FileMetadata>();
-        if (!Directory.Exists(_config.RootPath)) Directory.CreateDirectory(_config.RootPath);
+        // 1. Get files from DB (includes Tombstones)
+        var dbFiles = _db.GetAllFiles();
+        var dbFileDict = dbFiles.ToDictionary(f => f.RelativePath);
 
+        // 2. Scan Disk to catch any manual changes on server (optional but good for robustness)
+        // If we want strict syncing, we might rely purely on DB, but scanning disk handles server-side edits.
+        if (!Directory.Exists(_config.RootPath)) Directory.CreateDirectory(_config.RootPath);
+        
         foreach (var file in Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories))
         {
             var info = new FileInfo(file);
             var relativePath = Path.GetRelativePath(_config.RootPath, file);
-            files.Add(new Common.Models.FileMetadata
+            
+            if (dbFileDict.TryGetValue(relativePath, out var dbEntry))
             {
-                RelativePath = relativePath,
-                LastWriteTimeUtc = info.LastWriteTimeUtc,
-                CreationTimeUtc = info.CreationTimeUtc,
-                Size = info.Length,
-                IsDeleted = false
-            });
+                // If disk is newer, update DB
+                if (info.LastWriteTimeUtc > dbEntry.LastWriteTimeUtc)
+                {
+                   dbEntry.LastWriteTimeUtc = info.LastWriteTimeUtc;
+                   dbEntry.Size = info.Length;
+                   dbEntry.IsDeleted = false;
+                   _db.UpdateFile(dbEntry);
+                }
+            }
+            else
+            {
+                // New file on server side (manual copy?), add to DB
+                var newEntry = new Common.Models.FileMetadata
+                {
+                    RelativePath = relativePath,
+                    LastWriteTimeUtc = info.LastWriteTimeUtc,
+                    CreationTimeUtc = info.CreationTimeUtc,
+                    Size = info.Length,
+                    IsDeleted = false
+                };
+                _db.UpdateFile(newEntry);
+                dbFiles.Add(newEntry);
+                dbFileDict[relativePath] = newEntry; // Add to dict for next checks
+            }
         }
-        return files;
+        
+        // 3. We return the merged list. 
+        // Note: files in DB but NOT on disk should be marked IsDeleted if they aren't already?
+        // Actually, if file is missing from disk but DB says IsDeleted=false, it means someone deleted it manually on server.
+        // We should detect that too.
+        
+        var currentDiskFiles = Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories)
+                                        .Select(f => Path.GetRelativePath(_config.RootPath, f))
+                                        .ToHashSet();
+
+        foreach (var dbFile in dbFiles)
+        {
+             if (!dbFile.IsDeleted && !currentDiskFiles.Contains(dbFile.RelativePath))
+             {
+                 // Deleted manually on server
+                 dbFile.IsDeleted = true;
+                 dbFile.LastWriteTimeUtc = DateTime.UtcNow;
+                 _db.UpdateFile(dbFile);
+                 Console.WriteLine($"[ScanServerFiles] Detected manual deletion of {dbFile.RelativePath} on Server.");
+             }
+        }
+
+        return dbFiles;
     }
 
     private void WritePacket(NetworkStream stream, Common.Protocol.Packet packet)

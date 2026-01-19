@@ -50,16 +50,29 @@ public class SyncService
             _localState.UpdateFile(meta); 
         }
 
+        Console.WriteLine($"[ScanLocalFiles] Current on disk: {currentFiles.Count}, Known in State: {_localState.KnownFiles.Count}");
+
         // 2. Check for deletions (Files in KnownFiles but not on disk)
         foreach (var known in _localState.KnownFiles.Values)
         {
-            if (!currentFiles.Contains(known.RelativePath) && !known.IsDeleted)
+            if (!currentFiles.Contains(known.RelativePath))
             {
-                // Found a deletion
-                known.IsDeleted = true;
-                known.LastWriteTimeUtc = DateTime.UtcNow; // Mark deletion time
-                _localState.UpdateFile(known);
-                files.Add(known);
+                 Console.WriteLine($"[ScanLocalFiles] Detected missing file: {known.RelativePath}. IsDeleted in State: {known.IsDeleted}");
+                 if (!known.IsDeleted)
+                 {
+                    // Found a deletion
+                    known.IsDeleted = true;
+                    known.LastWriteTimeUtc = DateTime.UtcNow; // Mark deletion time
+                    _localState.UpdateFile(known);
+                    files.Add(known);
+                    Console.WriteLine($"[ScanLocalFiles] Marked {known.RelativePath} as Deleted.");
+                 }
+                 else
+                 {
+                     // Already marked deleted, send it again so server knows?
+                     // Yes, we should send it so server can delete if it missed it.
+                     files.Add(known);
+                 }
             }
         }
         
@@ -157,11 +170,36 @@ public class SyncService
         foreach (var serverFile in serverFiles)
         {
             var localPath = Path.Combine(_config.RootPath, serverFile.RelativePath);
+
+            if (serverFile.IsDeleted)
+            {
+                // Server says delete this file
+                // Check if we have a Newer local change?
+                if (File.Exists(localPath)) 
+                {
+                    var localInfo = new FileInfo(localPath);
+                    if (localInfo.LastWriteTimeUtc > serverFile.LastWriteTimeUtc)
+                    {
+                        Console.WriteLine($"[Sync] Conflict: Local file is NEWER ({localInfo.LastWriteTimeUtc}) than Server Deletion ({serverFile.LastWriteTimeUtc}). Keeping Local.");
+                        continue;
+                    }
+
+                    Console.WriteLine($"[Sync] Deleting local file {serverFile.RelativePath} (Sync from Server)");
+                    File.Delete(localPath);
+                }
+                
+                // Update Local State to match server
+                _localState.UpdateFile(serverFile);
+                continue;
+            }
+
             bool needsUpdate = true;
 
             if (File.Exists(localPath))
             {
                 var localInfo = new FileInfo(localPath);
+                Console.WriteLine($"[Sync] Checking {serverFile.RelativePath}: Local({localInfo.LastWriteTimeUtc} Kind={localInfo.LastWriteTimeUtc.Kind}) vs Server({serverFile.LastWriteTimeUtc} Kind={serverFile.LastWriteTimeUtc.Kind})");
+                
                 // Simple comparison: If server is newer
                 if (localInfo.LastWriteTimeUtc >= serverFile.LastWriteTimeUtc)
                 {
@@ -171,6 +209,7 @@ public class SyncService
 
             if (needsUpdate)
             {
+                Console.WriteLine($"[Sync] Updating {serverFile.RelativePath} from Server.");
                 // Request File
                 var req = new Packet 
                 { 
@@ -187,6 +226,10 @@ public class SyncService
                     Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
                     File.WriteAllBytes(localPath, resp.Payload);
                     File.SetLastWriteTimeUtc(localPath, serverFile.LastWriteTimeUtc); // Sync timestamps
+                    
+                    // Update State
+                    serverFile.IsDeleted = false; // Just to be sure
+                    _localState.UpdateFile(serverFile);
                 }
             }
         }

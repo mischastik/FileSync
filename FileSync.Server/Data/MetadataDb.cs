@@ -55,4 +55,44 @@ public class MetadataDb
         cmd.Parameters.AddWithValue("$sync", DateTime.UtcNow.ToString("o"));
         cmd.ExecuteNonQuery();
     }
+
+    public void UpdateFile(Common.Models.FileMetadata file)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+            INSERT OR REPLACE INTO Files (RelativePath, LastWriteTimeUtc, CreationTimeUtc, IsDeleted, Size)
+            VALUES ($path, $lastWrite, $creation, $deleted, $size)";
+        
+        cmd.Parameters.AddWithValue("$path", file.RelativePath);
+        cmd.Parameters.AddWithValue("$lastWrite", file.LastWriteTimeUtc.ToString("o"));
+        cmd.Parameters.AddWithValue("$creation", file.CreationTimeUtc.ToString("o"));
+        cmd.Parameters.AddWithValue("$deleted", file.IsDeleted ? 1 : 0);
+        cmd.Parameters.AddWithValue("$size", file.Size);
+        cmd.ExecuteNonQuery();
+    }
+
+    public List<Common.Models.FileMetadata> GetAllFiles()
+    {
+        var files = new List<Common.Models.FileMetadata>();
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT RelativePath, LastWriteTimeUtc, CreationTimeUtc, IsDeleted, Size FROM Files";
+        
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            files.Add(new Common.Models.FileMetadata
+            {
+                RelativePath = reader.GetString(0),
+                LastWriteTimeUtc = DateTime.Parse(reader.GetString(1), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                CreationTimeUtc = DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                IsDeleted = reader.GetInt32(3) == 1,
+                Size = reader.GetInt64(4)
+            });
+        }
+        return files;
+    }
 }
