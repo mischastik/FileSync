@@ -21,9 +21,10 @@ public class SyncService
     {
         _config = config;
         _localState = new Data.LocalState(_config.RootPath);
+        Console.WriteLine($"[SyncService] Initialized with RootPath: {Path.GetFullPath(_config.RootPath)}");
     }
 
-    public List<FileMetadata> ScanLocalFiles()
+    public List<FileMetadata> GetLocalFiles(bool deltaOnly = false)
     {
         var files = new List<FileMetadata>();
         if (!Directory.Exists(_config.RootPath))
@@ -45,78 +46,106 @@ public class SyncService
                 Size = info.Length,
                 IsDeleted = false
             };
-            files.Add(meta);
+
+            if (deltaOnly && _localState.LastSync.HasValue)
+            {
+                if (meta.LastWriteTimeUtc <= _localState.LastSync.Value)
+                {
+                    // Debug Log
+                    Console.WriteLine($"[Delta-Skip] {meta.RelativePath} ({meta.LastWriteTimeUtc}) <= LastSync ({_localState.LastSync.Value})");
+                    continue; // Skip unchanged
+                }
+                else
+                {
+                    Console.WriteLine($"[Delta-Include] {meta.RelativePath} ({meta.LastWriteTimeUtc}) > LastSync ({_localState.LastSync.Value})");
+                }
+            }
+            else if (deltaOnly && !_localState.LastSync.HasValue)
+            {
+                Console.WriteLine($"[Delta-All] {meta.RelativePath} (First Sync)");
+            }
+
             // Update known state
-            _localState.UpdateFile(meta); 
+            _localState.UpdateFile(meta);
+            files.Add(meta);
         }
 
-        Console.WriteLine($"[ScanLocalFiles] Current on disk: {currentFiles.Count}, Known in State: {_localState.KnownFiles.Count}");
+        Console.WriteLine($"[Scan] Current on disk: {currentFiles.Count}, Known in State: {_localState.KnownFiles.Count}");
 
         // 2. Check for deletions (Files in KnownFiles but not on disk)
         foreach (var known in _localState.KnownFiles.Values)
         {
             if (!currentFiles.Contains(known.RelativePath))
             {
-                 Console.WriteLine($"[ScanLocalFiles] Detected missing file: {known.RelativePath}. IsDeleted in State: {known.IsDeleted}");
-                 if (!known.IsDeleted)
-                 {
-                    // Found a deletion
+                // File is missing.
+                if (!known.IsDeleted)
+                {
+                    // Newly detected deletion
                     known.IsDeleted = true;
                     known.LastWriteTimeUtc = DateTime.UtcNow; // Mark deletion time
                     _localState.UpdateFile(known);
                     files.Add(known);
-                    Console.WriteLine($"[ScanLocalFiles] Marked {known.RelativePath} as Deleted.");
-                 }
-                 else
-                 {
-                     // Already marked deleted, send it again so server knows?
-                     // Yes, we should send it so server can delete if it missed it.
-                     files.Add(known);
-                 }
+                    Console.WriteLine($"[Scan] Marked {known.RelativePath} as Deleted.");
+                }
+                else
+                {
+                    // Already marked deleted.
+                    if (deltaOnly)
+                    {
+                        // Only send if it was deleted AFTER LastSync
+                        if (!_localState.LastSync.HasValue || known.LastWriteTimeUtc > _localState.LastSync.Value)
+                        {
+                            files.Add(known);
+                        }
+                    }
+                    else
+                    {
+                        // Return all deletions for UI if needed (though UI filters them out)
+                        files.Add(known);
+                    }
+                }
             }
         }
-        
+
+        if (deltaOnly) Console.WriteLine($"[GetChanges] Found {files.Count} changes to sync.");
         return files;
     }
 
     public async Task SyncAsync()
     {
-        try 
+        try
         {
             using var client = new TcpClient();
             await client.ConnectAsync(_config.ServerIp, _config.ServerPort);
             using var stream = client.GetStream();
 
             // --- 0. Handshake ---
-            var handshake = new Packet 
-            { 
-                Type = MessageType.Handshake, 
-                Payload = System.Text.Encoding.UTF8.GetBytes(_config.ClientId) 
+            var handshake = new Packet
+            {
+                Type = MessageType.Handshake,
+                Payload = System.Text.Encoding.UTF8.GetBytes(_config.ClientId)
             };
             WritePacket(stream, handshake);
-            
+
             // Wait for Handshake ACK? (Simplification: Assuming server is ready if connected)
             // Implementation: Server should probably send an Ack or we proceed. 
             // Let's read one packet to be sure server accepted us.
-            var response = ReadPacket(stream); 
-            if (response.Type != MessageType.ListResponse && response.Type != MessageType.Handshake) 
+            var response = ReadPacket(stream);
+            if (response.Type != MessageType.ListResponse && response.Type != MessageType.Handshake)
             {
-                 // Expected Handshake ACK or we can proceed.
-                 // If Server sends ListResponse immediately (as per my previous server stub), we handle it.
-                 // But wait, step 1 is "Update from Client" (Client sends list).
-                 // So Server should just Ack the handshake.
+                // Expected Handshake ACK or we can proceed.
+                // If Server sends ListResponse immediately (as per my previous server stub), we handle it.
+                // But wait, step 1 is "Update from Client" (Client sends list).
+                // So Server should just Ack the handshake.
             }
 
             // --- 1. Update from Client ---
-            var localFiles = ScanLocalFiles();
-            // TODO: Filter only changes using LocalState (omitted for now, sending all current files as 'current state')
-            // For robust sync, we need to compare with 'LastSync' state. 
-            // For this iteration, we send ALL local files and let server decide if they are new/modified.
-            
-            var listPacket = new Packet 
-            { 
+            var localChanges = GetLocalFiles(true); // Delta Sync
+
+            var listPacket = new Packet
+            {
                 Type = MessageType.ListRequest, // Client sending its list
-                Payload = JsonSerializer.SerializeToUtf8Bytes(localFiles)
+                Payload = JsonSerializer.SerializeToUtf8Bytes(localChanges)
             };
             WritePacket(stream, listPacket);
 
@@ -141,14 +170,34 @@ public class SyncService
                         else
                         {
                             // File not found (deleted?) - Send empty for now or Error
-                             WritePacket(stream, new Packet { Type = MessageType.Error });
+                            WritePacket(stream, new Packet { Type = MessageType.Error });
                         }
                         break;
                     case MessageType.ListResponse:
                         // Server is done with Step 1 and is now sending US its list (Step 2 starts)
                         // This packet contains Server's file list.
                         HandleServerList(pkg.Payload, stream);
-                        clientUpdateDone = true; 
+                        clientUpdateDone = true;
+
+                        // Sync Successful (at least Step 1 and reception of Step 2)
+                        // If separate try/catch for handleServerList, we might be more granular.
+                        // But here, we consider sync round complete.
+                        _localState.LastSync = DateTime.UtcNow;
+
+                        // Prune synced deletions
+                        var toRemove = _localState.KnownFiles.Values
+                            .Where(f => f.IsDeleted && f.LastWriteTimeUtc <= _localState.LastSync)
+                            .Select(f => f.RelativePath)
+                            .ToList();
+
+                        foreach (var key in toRemove)
+                        {
+                            _localState.KnownFiles.Remove(key);
+                        }
+                        Console.WriteLine($"[Sync] Pruned {toRemove.Count} deleted files from state.");
+
+                        _localState.Save();
+                        Console.WriteLine($"[Sync] Sync Complete. LastSync Updated to {_localState.LastSync}");
                         break;
                     case MessageType.EndOfSync:
                         clientUpdateDone = true;
@@ -175,7 +224,7 @@ public class SyncService
             {
                 // Server says delete this file
                 // Check if we have a Newer local change?
-                if (File.Exists(localPath)) 
+                if (File.Exists(localPath))
                 {
                     var localInfo = new FileInfo(localPath);
                     if (localInfo.LastWriteTimeUtc > serverFile.LastWriteTimeUtc)
@@ -187,9 +236,15 @@ public class SyncService
                     Console.WriteLine($"[Sync] Deleting local file {serverFile.RelativePath} (Sync from Server)");
                     File.Delete(localPath);
                 }
-                
-                // Update Local State to match server
-                _localState.UpdateFile(serverFile);
+
+                // Server says deleted. We accepted it (file is gone from disk).
+                // We should stop tracking it in LocalState so we don't report it as missing again, 
+                // and so we don't constantly Prune it.
+                if (_localState.KnownFiles.ContainsKey(serverFile.RelativePath))
+                {
+                    _localState.KnownFiles.Remove(serverFile.RelativePath);
+                    _localState.Save();
+                }
                 continue;
             }
 
@@ -199,7 +254,7 @@ public class SyncService
             {
                 var localInfo = new FileInfo(localPath);
                 Console.WriteLine($"[Sync] Checking {serverFile.RelativePath}: Local({localInfo.LastWriteTimeUtc} Kind={localInfo.LastWriteTimeUtc.Kind}) vs Server({serverFile.LastWriteTimeUtc} Kind={serverFile.LastWriteTimeUtc.Kind})");
-                
+
                 // Simple comparison: If server is newer
                 if (localInfo.LastWriteTimeUtc >= serverFile.LastWriteTimeUtc)
                 {
@@ -211,10 +266,10 @@ public class SyncService
             {
                 Console.WriteLine($"[Sync] Updating {serverFile.RelativePath} from Server.");
                 // Request File
-                var req = new Packet 
-                { 
-                    Type = MessageType.FileRequest, 
-                    Payload = System.Text.Encoding.UTF8.GetBytes(serverFile.RelativePath) 
+                var req = new Packet
+                {
+                    Type = MessageType.FileRequest,
+                    Payload = System.Text.Encoding.UTF8.GetBytes(serverFile.RelativePath)
                 };
                 WritePacket(stream, req);
 
@@ -226,7 +281,7 @@ public class SyncService
                     Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
                     File.WriteAllBytes(localPath, resp.Payload);
                     File.SetLastWriteTimeUtc(localPath, serverFile.LastWriteTimeUtc); // Sync timestamps
-                    
+
                     // Update State
                     serverFile.IsDeleted = false; // Just to be sure
                     _localState.UpdateFile(serverFile);
@@ -240,7 +295,7 @@ public class SyncService
         var data = packet.Serialize();
         stream.Write(data);
     }
-    
+
     private Packet ReadPacket(NetworkStream stream)
     {
         return Packet.ReadFromStream(stream);

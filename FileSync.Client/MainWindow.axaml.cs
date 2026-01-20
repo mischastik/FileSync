@@ -84,7 +84,7 @@ public partial class MainWindow : Window
     private void RefreshFileList()
     {
         var service = new SyncService(_config);
-        var files = service.ScanLocalFiles();
+        var files = service.GetLocalFiles();
         var displayList = new System.Collections.Generic.List<string>();
         foreach(var f in files)
         {

@@ -64,7 +64,6 @@ public class TcpServer
                 var serverFiles = ScanServerFiles();
 
                 // Process Client's List
-                // Process Client's List
                 foreach (var clientFile in clientFiles)
                 {
                     // Logic: If client file is newer or new, request it.

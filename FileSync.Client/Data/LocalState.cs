@@ -11,12 +11,18 @@ public class LocalState
 {
     private readonly string _statePath;
     public Dictionary<string, FileMetadata> KnownFiles { get; set; } = new();
+    public DateTime? LastSync { get; set; }
+
+    public LocalState()
+    {
+        _statePath = "Config/client_state.json";
+    }
 
     public LocalState(string rootPath)
     {
         _statePath = Path.Combine(rootPath, ".syncstate"); // Store in root or config? READMe doesn't specify location, but root/.syncstate is common. Or Config dir.
         // Let's put it in the Config dir to avoid cluttering the sync folder visibly
-        _statePath = "Config/client_state.json"; 
+        _statePath = "Config/client_state.json";
         Load();
     }
 
@@ -24,21 +30,32 @@ public class LocalState
     {
         if (File.Exists(_statePath))
         {
-            try 
+            try
             {
                 var json = File.ReadAllText(_statePath);
-                KnownFiles = JsonSerializer.Deserialize<Dictionary<string, FileMetadata>>(json) ?? new();
-                Console.WriteLine($"[LocalState] Loaded {KnownFiles.Count} files from {_statePath}");
+                // Try to deserialize as LocalState object first
+                // Note: Older version might be just a Dictionary, so we might need a fallback if we want to support migration,
+                // but for this dev stage, we can just switch.
+                // However, deserializing a dictionary JSON into a LocalState object might fail or result in null props.
+                // Let's rely on the fact that the JSON structure changed.
+
+                var state = JsonSerializer.Deserialize<LocalState>(json);
+                if (state != null)
+                {
+                    KnownFiles = state.KnownFiles ?? new();
+                    LastSync = state.LastSync;
+                }
+                Console.WriteLine($"[LocalState] Loaded {KnownFiles.Count} files from {_statePath}. LastSync: {LastSync}");
             }
-            catch (Exception ex) 
-            { 
+            catch (Exception ex)
+            {
                 Console.WriteLine($"[LocalState] Error loading state: {ex.Message}");
-                KnownFiles = new(); 
+                KnownFiles = new();
             }
         }
         else
         {
-             Console.WriteLine($"[LocalState] State file not found at {_statePath}");
+            Console.WriteLine($"[LocalState] State file not found at {_statePath}");
         }
     }
 
@@ -47,16 +64,15 @@ public class LocalState
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_statePath)!);
-            var json = JsonSerializer.Serialize(KnownFiles);
+            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_statePath, json);
-            // Console.WriteLine($"[LocalState] Saved state to {_statePath}");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[LocalState] Error saving state: {ex.Message}");
         }
     }
-    
+
     public void UpdateFile(FileMetadata file)
     {
         KnownFiles[file.RelativePath] = file;
