@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSync.Server", "FileSync
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSync.Client", "FileSync.Client\FileSync.Client.csproj", "{CD73082E-E569-41B6-99E7-8AFA8FD16DBE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileSync.Client.CLI", "FileSync.Client.CLI\FileSync.Client.CLI.csproj", "{9CED4DA0-AE76-4322-B721-409B36E07589}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{CD73082E-E569-41B6-99E7-8AFA8FD16DBE}.Release|x64.Build.0 = Release|Any CPU
 		{CD73082E-E569-41B6-99E7-8AFA8FD16DBE}.Release|x86.ActiveCfg = Release|Any CPU
 		{CD73082E-E569-41B6-99E7-8AFA8FD16DBE}.Release|x86.Build.0 = Release|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Debug|x64.Build.0 = Debug|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Debug|x86.Build.0 = Debug|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Release|x64.ActiveCfg = Release|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Release|x64.Build.0 = Release|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Release|x86.ActiveCfg = Release|Any CPU
+		{9CED4DA0-AE76-4322-B721-409B36E07589}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

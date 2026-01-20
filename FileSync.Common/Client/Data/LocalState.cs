@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using FileSync.Common.Models;
 
-namespace FileSync.Client.Data;
+namespace FileSync.Common.Client.Data;
 
 public class LocalState
 {

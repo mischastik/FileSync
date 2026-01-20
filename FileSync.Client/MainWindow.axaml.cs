@@ -1,7 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using FileSync.Client.Config;
-using FileSync.Client.Services;
+using FileSync.Common.Client.Config;
+using FileSync.Common.Client.Services;
 using System;
 using System.IO;
 using System.Text.Json;
@@ -36,7 +36,7 @@ public partial class MainWindow : Window
         ServerPortBox.Text = _config.ServerPort.ToString();
         ServerKeyBox.Text = _config.ServerPublicKey;
         RootPathBox.Text = _config.RootPath;
-        
+
         RefreshFileList();
     }
 
@@ -61,7 +61,7 @@ public partial class MainWindow : Window
     {
         SaveConfig();
         StatusText.Text = "Synchronizing...";
-        
+
         try
         {
             var service = new SyncService(_config);
@@ -86,7 +86,7 @@ public partial class MainWindow : Window
         var service = new SyncService(_config);
         var files = service.GetLocalFiles();
         var displayList = new System.Collections.Generic.List<string>();
-        foreach(var f in files)
+        foreach (var f in files)
         {
             if (!f.IsDeleted)
             {

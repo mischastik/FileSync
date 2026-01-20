@@ -7,10 +7,10 @@ using System.Threading.Tasks;
 using System.Text.Json;
 using FileSync.Common.Models;
 using FileSync.Common.Protocol;
-using FileSync.Client.Config;
-using FileSync.Client.Data;
+using FileSync.Common.Client.Config;
+using FileSync.Common.Client.Data;
 
-namespace FileSync.Client.Services;
+namespace FileSync.Common.Client.Services;
 
 public class SyncService
 {
