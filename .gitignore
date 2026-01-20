@@ -62,3 +62,9 @@ client_state.json
 *.sqlite
 *.db-shm
 *.db-wal
+
+# Test Data
+Test/ClientA/
+Test/ClientB/
+Test/*.log
+Test/Storage/
