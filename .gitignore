@@ -49,10 +49,13 @@ TestResult.xml
 nunit-*.xml
 
 # Configuration (Secrets)
-**/Config/
+# Ignore specific config files in project roots or bin
 config.json
 server_config.json
 client_state.json
+**/bin/**/config.json
+**/bin/**/server_config.json
+**/bin/**/client_state.json
 
 # IDE
 .vscode/
@@ -68,3 +71,4 @@ Test/ClientA/
 Test/ClientB/
 Test/*.log
 Test/Storage/
+server-storage/
