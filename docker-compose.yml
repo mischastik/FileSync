@@ -1,0 +1,11 @@
+services:
+  filesync-server:
+    build: .
+    container_name: filesync-server
+    ports:
+      - "32111:32111"
+    volumes:
+      - ./server-config:/app/Config
+      - ./server-data:/app/Data
+      - ./server-storage:/app/Storage
+    restart: unless-stopped
