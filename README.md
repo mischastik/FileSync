@@ -5,13 +5,42 @@ Server-/ Client-based TCP/IP File Synchronization Tool
 This is a test project to assess the capabilities of AI-Coding Tools. Feel free to use or improve it but DON'T TRUST IT with sensible data. Your data may not be safe in terms of access by third parites or may be lost or compromised due to bugs.
 
 ## Usage
+
+### Start Up
 The server and client applications are console applications. The server application can be started without parameters. The client application requires the server IP and port as parameters. There is also a GUI-based client.
 
 A Docker configuration for the server is available to run it within a container.
 Use the command
- docker-compose up -d
-to start the server.
+```
+docker-compose up -d
+```
+to start the server. You may require to add 'sudo' to the command if you are on Linux.
+
 The server outputs its public IP address and port to the console. This IP address and port need to be provided to the client application.
+
+The client application can be started with the command
+```
+FileSyncClient.exe <server-ip> <server-port>
+```
+
+The client application will then ask for the server public key. This key needs to be manually entered by the user of each client prior to the first connection to the server.
+
+The file 'config.json' in the client's configuration directory contains the client's public and private key as well as the server public key and the root path of the synchronized folder. You may need to edit it to your requirements.
+
+### Network and Internet
+If you run the applications within your local network, you should be fine. You may need to allow the server application to listen on the port it is configured to use in your firewalls.
+
+If you intend to use the application over the internet, you need to configure a port forward rule in your router. 
+
+**WARNING: This can be risky as it exposes the application to the internet. Any third party could access the server and and exploit vulnerabilities. Only do this, if you are aware of the risk and know what you're doing.**
+
+A port forward rule forwards a port from your router to the server's IP address. The server's IP address can be found by running the command 'ipconfig' on Windows or 'ifconfig' on Linux.
+
+The port forward rule needs to be configured in your router's settings. The exact steps vary depending on your router's model and manufacturer. 
+
+In this case, you need to provide you public IP to the client application. 
+
+Most likely you won't have a static IP, so this IP will change regularly. In this case, you need to update the IP address in the client application or use a Dynamic DNS service that automatically maps your IP address to a domain name. Usually, you need to configure your internet router to report the IP address changes to the Dynamic DNS service.
 
 ## Abstract
 FileSync is a Server- / Client-based file and folder synchronization tool written in C#. It is compatible with Linux and Windows.
