@@ -11,29 +11,31 @@
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary"
             ],
-            "problemMatcher": "$msCompile"{
-                "label": "watch gui",
-                "command": "dotnet",
-                "type": "process",
-                "args": [
-                    "watch",
-                    "run",
-                    "--project",
-                    "${workspaceFolder}/FileSync.Client/FileSync.Client.csproj"
-                ],
-                "problemMatcher": "$msCompile"
-            },
-            {
-                "label": "watch cli",
-                "command": "dotnet",
-                "type": "process",
-                "args": [
-                    "watch",
-                    "run",
-                    "--project",
-                    "${workspaceFolder}/FileSync.Client.CLI/FileSync.Client.CLI.csproj"
-                ],
-                "problemMatcher": "$msCompile"
-            }
-        ]
-    }
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "watch gui",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "watch",
+                "run",
+                "--project",
+                "${workspaceFolder}/FileSync.Client/FileSync.Client.csproj"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "watch cli",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "watch",
+                "run",
+                "--project",
+                "${workspaceFolder}/FileSync.Client.CLI/FileSync.Client.CLI.csproj"
+            ],
+            "problemMatcher": "$msCompile"
+        }
+    ]
+}
