@@ -22,6 +22,20 @@
             "cwd": "${workspaceFolder}/FileSync.Client",
             "stopAtEntry": false,
             "console": "internalConsole"
+        },
+        {
+            "name": "Launch Client CLI",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            // The CLI builds into the Client's bin folder as per previous request
+            "program": "${workspaceFolder}/FileSync.Client/bin/Debug/net9.0/FileSync.Client.CLI.dll",
+            "args": [
+                "help"
+            ],
+            "cwd": "${workspaceFolder}/FileSync.Client/bin/Debug/net9.0",
+            "stopAtEntry": false,
+            "console": "internalConsole"
         }
     ]
 }
