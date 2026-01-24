@@ -1,5 +1,17 @@
 # FileSync
-File Synchronization Tool
+Server-/ Client-based TCP/IP File Synchronization Tool
+
+## Warning
+This is a test project to assess the capabilities of AI-Coding Tools. Feel free to use or improve it but DON'T TRUST IT with sensible data. Your data may not be safe in terms of access by third parites or may be lost or compromised due to bugs.
+
+## Usage
+The server and client applications are console applications. The server application can be started without parameters. The client application requires the server IP and port as parameters. There is also a GUI-based client.
+
+A Docker configuration for the server is available to run it within a container.
+Use the command
+ docker-compose up -d
+to start the server.
+The server outputs its public IP address and port to the console. This IP address and port need to be provided to the client application.
 
 ## Abstract
 FileSync is a Server- / Client-based file and folder synchronization tool written in C#. It is compatible with Linux and Windows.
