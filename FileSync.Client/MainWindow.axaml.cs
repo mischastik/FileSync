@@ -22,6 +22,7 @@ public partial class MainWindow : Window
 
     private void LoadConfig()
     {
+        bool newlyCreated = false;
         if (File.Exists(_configPath))
         {
             var json = File.ReadAllText(_configPath);
@@ -30,6 +31,23 @@ public partial class MainWindow : Window
         else
         {
             _config = new ClientConfig();
+            newlyCreated = true;
+        }
+
+        // Generate Keys if missing
+        if (string.IsNullOrEmpty(_config.PublicKey))
+        {
+            var keys = FileSync.Common.Security.CryptoHelper.GenerateKeys();
+            _config.PublicKey = keys.PublicKey;
+            _config.PrivateKey = keys.PrivateKey;
+            newlyCreated = true;
+        }
+
+        if (newlyCreated)
+        {
+            // Initial save to persist keys and ID
+            var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(_configPath, json);
         }
 
         ServerIpBox.Text = _config.ServerIp;
@@ -75,10 +93,20 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnUnregisterClick(object sender, RoutedEventArgs e)
+    private async void OnUnregisterClick(object sender, RoutedEventArgs e)
     {
-        // TODO: Implement Unregister logic
-        StatusText.Text = "Unregister not implemented yet.";
+        SaveConfig();
+        StatusText.Text = "Unregistering...";
+        try
+        {
+            var service = new SyncService(_config);
+            await service.UnregisterAsync();
+            StatusText.Text = "Successfully unregistered from server.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Unregister Error: {ex.Message}";
+        }
     }
 
     private void RefreshFileList()

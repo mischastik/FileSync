@@ -31,7 +31,7 @@ class Program
                 await HandleSync();
                 break;
             case "unregister":
-                HandleUnregister();
+                await HandleUnregister();
                 break;
             case "help":
                 PrintUsage();
@@ -106,27 +106,61 @@ class Program
         }
     }
 
-    private static void HandleUnregister()
+    private static async Task HandleUnregister()
     {
-        // TODO: Implement unregister logic if protocol supports it
-        Console.WriteLine("Unregister not implemented.");
+        var config = LoadConfig();
+        Console.WriteLine($"Unregistering from {config.ServerIp}:{config.ServerPort}...");
+        try
+        {
+            var service = new SyncService(config);
+            await service.UnregisterAsync();
+            Console.WriteLine("Unregister successful.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Unregister failed: {ex.Message}");
+        }
     }
 
     private static ClientConfig LoadConfig()
     {
+        ClientConfig config;
+        bool newlyCreated = false;
+
         if (File.Exists(ConfigPath))
         {
             try
             {
                 var json = File.ReadAllText(ConfigPath);
-                return JsonSerializer.Deserialize<ClientConfig>(json) ?? new ClientConfig();
+                config = JsonSerializer.Deserialize<ClientConfig>(json) ?? new ClientConfig();
             }
             catch
             {
-                return new ClientConfig();
+                config = new ClientConfig();
+                newlyCreated = true;
             }
         }
-        return new ClientConfig();
+        else
+        {
+            config = new ClientConfig();
+            newlyCreated = true;
+        }
+
+        // Generate Keys if missing
+        if (string.IsNullOrEmpty(config.PublicKey))
+        {
+            var keys = FileSync.Common.Security.CryptoHelper.GenerateKeys();
+            config.PublicKey = keys.PublicKey;
+            config.PrivateKey = keys.PrivateKey;
+            newlyCreated = true;
+        }
+
+        if (newlyCreated)
+        {
+            SaveConfig(config);
+        }
+
+        return config;
     }
 
     private static void SaveConfig(ClientConfig config)

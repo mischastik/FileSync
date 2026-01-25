@@ -111,6 +111,28 @@ public class SyncService
         return files;
     }
 
+    public async Task UnregisterAsync()
+    {
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(_config.ServerIp, _config.ServerPort);
+            using var stream = client.GetStream();
+
+            var unreg = new Packet
+            {
+                Type = MessageType.Unregister,
+                Payload = System.Text.Encoding.UTF8.GetBytes(_config.ClientId)
+            };
+            WritePacket(stream, unreg);
+            Console.WriteLine("[SyncService] Unregister request sent.");
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Unregister failed: {ex.Message}");
+        }
+    }
+
     public async Task SyncAsync()
     {
         try
@@ -120,27 +142,26 @@ public class SyncService
             using var stream = client.GetStream();
 
             // --- 0. Handshake ---
+            var handshakeData = new { ClientId = _config.ClientId, PublicKey = _config.PublicKey };
             var handshake = new Packet
             {
                 Type = MessageType.Handshake,
-                Payload = System.Text.Encoding.UTF8.GetBytes(_config.ClientId)
+                Payload = JsonSerializer.SerializeToUtf8Bytes(handshakeData)
             };
+            Console.WriteLine($"[Client] Sending Handshake: {JsonSerializer.Serialize(handshakeData)}");
             WritePacket(stream, handshake);
 
-            // Wait for Handshake ACK? (Simplification: Assuming server is ready if connected)
-            // Implementation: Server should probably send an Ack or we proceed. 
-            // Let's read one packet to be sure server accepted us.
+            // Wait for Handshake ACK
             var response = ReadPacket(stream);
+            Console.WriteLine($"[Client] Received Handshake Response: {response.Type}");
             if (response.Type != MessageType.ListResponse && response.Type != MessageType.Handshake)
             {
-                // Expected Handshake ACK or we can proceed.
-                // If Server sends ListResponse immediately (as per my previous server stub), we handle it.
-                // But wait, step 1 is "Update from Client" (Client sends list).
-                // So Server should just Ack the handshake.
+                Console.WriteLine($"[Client] Unexpected response during handshake: {response.Type}");
             }
 
             // --- 1. Update from Client ---
             var localChanges = GetLocalFiles(true); // Delta Sync
+            Console.WriteLine($"[Client] Sending ListRequest with {localChanges.Count} changes.");
 
             var listPacket = new Packet
             {

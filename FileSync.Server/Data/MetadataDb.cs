@@ -42,8 +42,37 @@ public class MetadataDb
         ";
         cmd.ExecuteNonQuery();
     }
-    
+
     // Methods to AddClient, GetClient, UpdateFile, GetAllFiles, etc. will go here
+    public (string PublicKey, DateTime LastSync)? GetClient(string clientId)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT PublicKey, LastSync FROM Clients WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", clientId);
+
+        using var reader = cmd.ExecuteReader();
+        if (reader.Read())
+        {
+            return (
+                reader.GetString(0),
+                DateTime.Parse(reader.GetString(1), null, System.Globalization.DateTimeStyles.RoundtripKind)
+            );
+        }
+        return null;
+    }
+
+    public void UnregisterClient(string clientId)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM Clients WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", clientId);
+        cmd.ExecuteNonQuery();
+    }
+
     public void RegisterClient(string clientId, string publicKey)
     {
         using var connection = new SqliteConnection(_connectionString);
@@ -64,7 +93,7 @@ public class MetadataDb
         cmd.CommandText = @"
             INSERT OR REPLACE INTO Files (RelativePath, LastWriteTimeUtc, CreationTimeUtc, IsDeleted, Size)
             VALUES ($path, $lastWrite, $creation, $deleted, $size)";
-        
+
         cmd.Parameters.AddWithValue("$path", file.RelativePath);
         cmd.Parameters.AddWithValue("$lastWrite", file.LastWriteTimeUtc.ToString("o"));
         cmd.Parameters.AddWithValue("$creation", file.CreationTimeUtc.ToString("o"));
@@ -80,7 +109,7 @@ public class MetadataDb
         connection.Open();
         var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT RelativePath, LastWriteTimeUtc, CreationTimeUtc, IsDeleted, Size FROM Files";
-        
+
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {

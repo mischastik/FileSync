@@ -27,7 +27,7 @@ public class TcpServer
         _listener.Start();
         _isRunning = true;
         Console.WriteLine($"Server started on port {_config.Port}");
-        
+
         while (_isRunning)
         {
             var client = _listener.AcceptTcpClient();
@@ -43,15 +43,59 @@ public class TcpServer
         {
             try
             {
-                // 1. Handshake
-                // Expect Handshake Packet
-                var handshakePkg = Packet.ReadFromStream(netStream);
-                if (handshakePkg.Type != MessageType.Handshake) return;
+                // 1. Handshake or Registration actions
+                // Expect Handshake or Unregister Packet
+                var pkg = Packet.ReadFromStream(netStream);
+                Console.WriteLine($"[Server] Received Packet Type: {pkg.Type}, Payload Length: {pkg.Payload.Length}");
 
-                var clientId = System.Text.Encoding.UTF8.GetString(handshakePkg.Payload);
+                if (pkg.Type == MessageType.Unregister)
+                {
+                    var idToUnreg = System.Text.Encoding.UTF8.GetString(pkg.Payload);
+                    _db.UnregisterClient(idToUnreg);
+                    Console.WriteLine($"[Server] Unregistered client: {idToUnreg}");
+                    return;
+                }
+
+                if (pkg.Type != MessageType.Handshake)
+                {
+                    Console.WriteLine($"[Server] Unexpected packet type: {pkg.Type}. Expected Handshake.");
+                    return;
+                }
+
+                // Handshake JSON: { "ClientId": "...", "PublicKey": "..." }
+                string jsonString = System.Text.Encoding.UTF8.GetString(pkg.Payload);
+                Console.WriteLine($"[Server] Handshake Payload: {jsonString}");
+                var handshakePayload = JsonSerializer.Deserialize<JsonElement>(pkg.Payload);
+                var clientId = handshakePayload.GetProperty("ClientId").GetString();
+                var publicKey = handshakePayload.GetProperty("PublicKey").GetString();
+
+                if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(publicKey))
+                {
+                    Console.WriteLine("Invalid handshake payload.");
+                    return;
+                }
+
                 Console.WriteLine($"Handshake from {clientId}");
-                // TODO: Register/Validate Client in DB
-                
+
+                // 1.1 Register/Validate Client
+                var existing = _db.GetClient(clientId);
+                if (existing == null)
+                {
+                    Console.WriteLine($"New client detected. Registering: {clientId}");
+                    _db.RegisterClient(clientId, publicKey);
+                }
+                else
+                {
+                    // Existing client - Validate Public Key
+                    if (existing.Value.PublicKey != publicKey)
+                    {
+                        Console.WriteLine($"[Security] Client {clientId} failed validation: Public Key Mismatch!");
+                        var err = new Packet { Type = MessageType.Error, Payload = System.Text.Encoding.UTF8.GetBytes("Invalid Public Key") };
+                        WritePacket(netStream, err);
+                        return;
+                    }
+                }
+
                 // Send Handshake ACK
                 var ack = new Packet { Type = MessageType.Handshake, Payload = System.Text.Encoding.UTF8.GetBytes("OK") };
                 WritePacket(netStream, ack);
@@ -68,7 +112,7 @@ public class TcpServer
                 {
                     // Logic: If client file is newer or new, request it.
                     var serverFile = serverFiles.FirstOrDefault(f => f.RelativePath == clientFile.RelativePath);
-                    
+
                     if (clientFile.IsDeleted)
                     {
                         // Client says it's deleted. 
@@ -76,17 +120,17 @@ public class TcpServer
                         if (serverFile == null || !serverFile.IsDeleted || clientFile.LastWriteTimeUtc > serverFile.LastWriteTimeUtc)
                         {
                             var fullPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
-                            if (File.Exists(fullPath)) 
+                            if (File.Exists(fullPath))
                             {
                                 Console.WriteLine($"Deleting {clientFile.RelativePath} (Sync from Client)");
                                 File.Delete(fullPath);
                             }
-                            
+
                             // Update DB
                             clientFile.IsDeleted = true; // Ensure flag
                             _db.UpdateFile(clientFile);
                             // Update in-memory list so we send correct list back
-                            if (serverFile != null) serverFile.IsDeleted = true; 
+                            if (serverFile != null) serverFile.IsDeleted = true;
                         }
                         continue;
                     }
@@ -121,16 +165,16 @@ public class TcpServer
                     }
                     else
                     {
-                         Console.WriteLine($"[Step1] Ignoring {clientFile.RelativePath}: Server ({serverFile.LastWriteTimeUtc}) >= Client ({clientFile.LastWriteTimeUtc})");
+                        Console.WriteLine($"[Step1] Ignoring {clientFile.RelativePath}: Server ({serverFile.LastWriteTimeUtc}) >= Client ({clientFile.LastWriteTimeUtc})");
                     }
 
                     if (fetchFromClient)
                     {
                         Console.WriteLine($"Requesting {clientFile.RelativePath} from client...");
-                        var req = new Packet 
-                        { 
-                            Type = MessageType.FileRequest, 
-                            Payload = System.Text.Encoding.UTF8.GetBytes(clientFile.RelativePath) 
+                        var req = new Packet
+                        {
+                            Type = MessageType.FileRequest,
+                            Payload = System.Text.Encoding.UTF8.GetBytes(clientFile.RelativePath)
                         };
                         WritePacket(netStream, req);
 
@@ -142,7 +186,7 @@ public class TcpServer
                             File.WriteAllBytes(localPath, resp.Payload);
                             File.SetLastWriteTimeUtc(localPath, clientFile.LastWriteTimeUtc);
                             Console.WriteLine($"Received {clientFile.RelativePath}");
-                            
+
                             // Update DB
                             _db.UpdateFile(clientFile);
                         }
@@ -152,17 +196,17 @@ public class TcpServer
                 // Step 1 Done.
                 // 3. Send Server List (Step 2)
                 serverFiles = ScanServerFiles(); // Rescan to include what we just got
-                var listResp = new Packet 
-                { 
-                    Type = MessageType.ListResponse, 
-                    Payload = JsonSerializer.SerializeToUtf8Bytes(serverFiles) 
+                var listResp = new Packet
+                {
+                    Type = MessageType.ListResponse,
+                    Payload = JsonSerializer.SerializeToUtf8Bytes(serverFiles)
                 };
                 WritePacket(netStream, listResp);
 
                 // 4. Serve requested files
                 while (true)
                 {
-                    try 
+                    try
                     {
                         var req = Packet.ReadFromStream(netStream);
                         if (req.Type == MessageType.FileRequest)
@@ -205,21 +249,21 @@ public class TcpServer
         // 2. Scan Disk to catch any manual changes on server (optional but good for robustness)
         // If we want strict syncing, we might rely purely on DB, but scanning disk handles server-side edits.
         if (!Directory.Exists(_config.RootPath)) Directory.CreateDirectory(_config.RootPath);
-        
+
         foreach (var file in Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories))
         {
             var info = new FileInfo(file);
             var relativePath = Path.GetRelativePath(_config.RootPath, file);
-            
+
             if (dbFileDict.TryGetValue(relativePath, out var dbEntry))
             {
                 // If disk is newer, update DB
                 if (info.LastWriteTimeUtc > dbEntry.LastWriteTimeUtc)
                 {
-                   dbEntry.LastWriteTimeUtc = info.LastWriteTimeUtc;
-                   dbEntry.Size = info.Length;
-                   dbEntry.IsDeleted = false;
-                   _db.UpdateFile(dbEntry);
+                    dbEntry.LastWriteTimeUtc = info.LastWriteTimeUtc;
+                    dbEntry.Size = info.Length;
+                    dbEntry.IsDeleted = false;
+                    _db.UpdateFile(dbEntry);
                 }
             }
             else
@@ -238,26 +282,26 @@ public class TcpServer
                 dbFileDict[relativePath] = newEntry; // Add to dict for next checks
             }
         }
-        
+
         // 3. We return the merged list. 
         // Note: files in DB but NOT on disk should be marked IsDeleted if they aren't already?
         // Actually, if file is missing from disk but DB says IsDeleted=false, it means someone deleted it manually on server.
         // We should detect that too.
-        
+
         var currentDiskFiles = Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories)
                                         .Select(f => Path.GetRelativePath(_config.RootPath, f))
                                         .ToHashSet();
 
         foreach (var dbFile in dbFiles)
         {
-             if (!dbFile.IsDeleted && !currentDiskFiles.Contains(dbFile.RelativePath))
-             {
-                 // Deleted manually on server
-                 dbFile.IsDeleted = true;
-                 dbFile.LastWriteTimeUtc = DateTime.UtcNow;
-                 _db.UpdateFile(dbFile);
-                 Console.WriteLine($"[ScanServerFiles] Detected manual deletion of {dbFile.RelativePath} on Server.");
-             }
+            if (!dbFile.IsDeleted && !currentDiskFiles.Contains(dbFile.RelativePath))
+            {
+                // Deleted manually on server
+                dbFile.IsDeleted = true;
+                dbFile.LastWriteTimeUtc = DateTime.UtcNow;
+                _db.UpdateFile(dbFile);
+                Console.WriteLine($"[ScanServerFiles] Detected manual deletion of {dbFile.RelativePath} on Server.");
+            }
         }
 
         return dbFiles;

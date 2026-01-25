@@ -15,14 +15,12 @@ public class LocalState
 
     public LocalState()
     {
-        _statePath = "Config/client_state.json";
+        _statePath = "client_state.json";
     }
 
     public LocalState(string rootPath)
     {
-        _statePath = Path.Combine(rootPath, ".syncstate"); // Store in root or config? READMe doesn't specify location, but root/.syncstate is common. Or Config dir.
-        // Let's put it in the Config dir to avoid cluttering the sync folder visibly
-        _statePath = "Config/client_state.json";
+        _statePath = "client_state.json";
         Load();
     }
 
@@ -63,7 +61,8 @@ public class LocalState
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(_statePath)!);
+            var dir = Path.GetDirectoryName(_statePath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_statePath, json);
         }

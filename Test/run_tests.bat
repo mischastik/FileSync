@@ -12,6 +12,10 @@ set "CLIENT_A=ClientA"
 set "CLIENT_B=ClientB"
 set "SERVER_IP=127.0.0.1"
 
+:: 0. Cleanup Build Artifacts that might cause ID collisions
+if exist "%CLI_BIN%\config.json" del "%CLI_BIN%\config.json"
+if exist "%CLI_BIN%\client_state.json" del "%CLI_BIN%\client_state.json"
+
 echo ==========================================
 echo      FileSync Automated Tests
 echo ==========================================
