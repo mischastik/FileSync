@@ -72,3 +72,4 @@ Test/ClientB/
 Test/*.log
 Test/Storage/
 server-storage/
+*.log
