@@ -108,6 +108,10 @@ public class SyncService
         }
 
         if (deltaOnly) Console.WriteLine($"[GetChanges] Found {files.Count} changes to sync.");
+
+        // Optimize: Save once after scanning all files
+        _localState.Save();
+
         return files;
     }
 
@@ -264,7 +268,6 @@ public class SyncService
                 if (_localState.KnownFiles.ContainsKey(serverFile.RelativePath))
                 {
                     _localState.KnownFiles.Remove(serverFile.RelativePath);
-                    _localState.Save();
                 }
                 continue;
             }
@@ -309,6 +312,8 @@ public class SyncService
                 }
             }
         }
+        // Optimize: Save once after processing server list
+        _localState.Save();
     }
 
     private void WritePacket(NetworkStream stream, Packet packet)

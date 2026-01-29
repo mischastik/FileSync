@@ -75,6 +75,5 @@ public class LocalState
     public void UpdateFile(FileMetadata file)
     {
         KnownFiles[file.RelativePath] = file;
-        Save();
     }
 }
