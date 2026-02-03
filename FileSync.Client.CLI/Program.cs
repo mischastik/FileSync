@@ -28,7 +28,10 @@ class Program
                 HandleConfig(args);
                 break;
             case "sync":
-                await HandleSync();
+                await HandleSync(args);
+                break;
+            case "resync":
+                await HandleResync();
                 break;
             case "unregister":
                 await HandleUnregister();
@@ -48,7 +51,8 @@ class Program
         Console.WriteLine("FileSync CLI");
         Console.WriteLine("Usage:");
         Console.WriteLine("  config --server <address> --port <port> [--key <pubkey>] [--root <path>]");
-        Console.WriteLine("  sync");
+        Console.WriteLine("  sync [--force]");
+        Console.WriteLine("  resync");
         Console.WriteLine("  unregister");
     }
 
@@ -90,20 +94,34 @@ class Program
         Console.WriteLine($"Root: {config.RootPath}");
     }
 
-    private static async Task HandleSync()
+    private static async Task HandleSync(string[] args)
     {
+        bool force = false;
+        if (args.Length > 1 && args[1].ToLower() == "--force") force = true;
+
         var config = LoadConfig();
-        Console.WriteLine($"Starting Sync with {config.ServerAddress}:{config.ServerPort}...");
+        Console.WriteLine($"Starting Sync (Force={force}) with {config.ServerAddress}:{config.ServerPort}...");
         try
         {
             var service = new SyncService(config);
-            await service.SyncAsync();
+            await service.SyncAsync(forceFullSync: force);
             Console.WriteLine("Sync completed successfully.");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Sync failed: {ex.Message}");
         }
+    }
+
+    private static async Task HandleResync()
+    {
+        var config = LoadConfig();
+        Console.WriteLine("Resetting local state for full resync...");
+        var state = new FileSync.Common.Client.Data.LocalState(config.RootPath);
+        state.Reset();
+        state.Save();
+
+        await HandleSync(new[] { "sync", "--force" });
     }
 
     private static async Task HandleUnregister()

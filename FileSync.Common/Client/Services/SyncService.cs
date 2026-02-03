@@ -47,17 +47,24 @@ public class SyncService
                 IsDeleted = false
             };
 
+            bool isKnown = _localState.KnownFiles.TryGetValue(relativePath, out var existingMeta);
+            bool isNew = !isKnown;
+
             if (deltaOnly && _localState.LastSync.HasValue)
             {
-                if (meta.LastWriteTimeUtc <= _localState.LastSync.Value)
+                if (!isNew && meta.LastWriteTimeUtc <= _localState.LastSync.Value)
                 {
                     // Debug Log
-                    Console.WriteLine($"[Delta-Skip] {meta.RelativePath} ({meta.LastWriteTimeUtc}) <= LastSync ({_localState.LastSync.Value})");
-                    continue; // Skip unchanged
+                    // Console.WriteLine($"[Delta-Skip] {meta.RelativePath} ({meta.LastWriteTimeUtc}) <= LastSync ({_localState.LastSync.Value})");
+                    continue; // Skip unchanged existing file
+                }
+                else if (isNew)
+                {
+                    Console.WriteLine($"[Delta-New] {meta.RelativePath} (New file even with old timestamp)");
                 }
                 else
                 {
-                    Console.WriteLine($"[Delta-Include] {meta.RelativePath} ({meta.LastWriteTimeUtc}) > LastSync ({_localState.LastSync.Value})");
+                    Console.WriteLine($"[Delta-Include] {meta.RelativePath} ({meta.LastWriteTimeUtc} > {_localState.LastSync.Value})");
                 }
             }
             else if (deltaOnly && !_localState.LastSync.HasValue)
@@ -138,7 +145,7 @@ public class SyncService
         }
     }
 
-    public async Task SyncAsync()
+    public async Task SyncAsync(bool forceFullSync = false)
     {
         try
         {
@@ -172,7 +179,8 @@ public class SyncService
 
             // --- 1. Update from Client ---
             Console.WriteLine($"[SyncService] Scanning local files for changes...");
-            var localChanges = GetLocalFiles(true); // Delta Sync
+            var localChanges = GetLocalFiles(forceFullSync ? false : true); // Delta Sync unless forced
+            if (forceFullSync) Console.WriteLine("[SyncService] Performing FULL synchronization.");
             Console.WriteLine($"[SyncService] Sending ListRequest with {localChanges.Count} changes.");
 
             var listPacket = new Packet

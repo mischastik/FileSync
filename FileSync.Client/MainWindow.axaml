@@ -29,6 +29,7 @@
         <TextBlock Text="Actions" FontSize="18" FontWeight="Bold"/>
         <StackPanel Orientation="Horizontal" Spacing="10">
             <Button Name="SyncButton" Content="Synchronize" Click="OnSyncClick" Background="LightBlue"/>
+            <Button Name="ForceResyncButton" Content="Force Resync" Click="OnForceResyncClick" Background="LightGoldenrodYellow"/>
             <Button Name="UnregisterButton" Content="Unregister" Click="OnUnregisterClick" Background="Salmon"/>
         </StackPanel>
 

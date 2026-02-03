@@ -76,4 +76,11 @@ public class LocalState
     {
         KnownFiles[file.RelativePath] = file;
     }
+
+    public void Reset()
+    {
+        KnownFiles.Clear();
+        LastSync = null;
+        Console.WriteLine("[LocalState] State has been reset.");
+    }
 }

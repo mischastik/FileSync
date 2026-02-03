@@ -93,6 +93,28 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnForceResyncClick(object sender, RoutedEventArgs e)
+    {
+        SaveConfig();
+        StatusText.Text = "Resetting state and starting full sync...";
+
+        try
+        {
+            var state = new FileSync.Common.Client.Data.LocalState(_config.RootPath);
+            state.Reset();
+            state.Save();
+
+            var service = new SyncService(_config);
+            await service.SyncAsync(forceFullSync: true);
+            StatusText.Text = "Force Resync Complete.";
+            RefreshFileList();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Resync Error: {ex.Message}";
+        }
+    }
+
     private async void OnUnregisterClick(object sender, RoutedEventArgs e)
     {
         SaveConfig();
