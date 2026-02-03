@@ -187,6 +187,54 @@ if %errorlevel%==0 (
 
 echo.
 echo ==========================================
+echo CASE 5: New File with Old Timestamp
+echo ==========================================
+echo [Action] Baseline Sync for A
+pushd "%CLIENT_A%"
+FileSync.Client.CLI.exe sync >nul
+popd
+
+echo [Action] Creating old_file.txt in A
+echo Old file content > "%CLIENT_A%\Files\old_file.txt"
+
+echo [Action] Backdating old_file.txt using PowerShell
+REM powershell -Command "(Get-Item '%CLIENT_A%\Files\old_file.txt').LastWriteTime = (Get-Date).AddDays(-10)"
+powershell -NoProfile -Command "$p=\"%CLIENT_A%\Files\old_file.txt\"; (Get-Item $p).LastWriteTime=(Get-Date).AddDays(-10)"
+
+echo [Sync] Client A Syncing...
+pushd "%CLIENT_A%"
+FileSync.Client.CLI.exe sync > "sync_old_timestamp.log" 2>&1
+popd
+
+echo [Sync] Client B Syncing...
+pushd "%CLIENT_B%"
+FileSync.Client.CLI.exe sync > "sync_old_timestamp.log" 2>&1
+popd
+echo done.
+
+REM if exist "%CLIENT_B%\Files\old_file.txt" (
+REM    echo [PASS] old_file.txt found in Client B (Regression Fix Verified).
+REM ) else (
+REM    echo [FAIL] old_file.txt NOT found in Client B.
+REM    echo --- Client A Sync Log ---
+REM    type "%CLIENT_A%\sync_old_timestamp.log"
+REM    goto :error
+REM )
+
+if not exist "%CLIENT_B%\Files\old_file.txt" goto :fail_old
+
+echo [PASS] old_file.txt found in Client B (Regression Fix Verified).
+goto :after_old
+
+:fail_old
+echo [FAIL] old_file.txt NOT found in Client B.
+echo --- Client A Sync Log ---
+type "%CLIENT_A%\sync_old_timestamp.log"
+goto :error
+
+:after_old
+
+echo ==========================================
 echo ALL TESTS PASSED
 echo ==========================================
 taskkill /F /IM FileSync.Server.exe >nul 2>&1
