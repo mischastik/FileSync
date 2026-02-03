@@ -50,7 +50,7 @@ public partial class MainWindow : Window
             File.WriteAllText(_configPath, json);
         }
 
-        ServerIpBox.Text = _config.ServerIp;
+        ServerAddressBox.Text = _config.ServerAddress;
         ServerPortBox.Text = _config.ServerPort.ToString();
         ServerKeyBox.Text = _config.ServerPublicKey;
         RootPathBox.Text = _config.RootPath;
@@ -60,7 +60,7 @@ public partial class MainWindow : Window
 
     private void SaveConfig()
     {
-        _config.ServerIp = ServerIpBox.Text ?? "127.0.0.1";
+        _config.ServerAddress = ServerAddressBox.Text ?? "127.0.0.1";
         if (int.TryParse(ServerPortBox.Text, out int port)) _config.ServerPort = port;
         _config.ServerPublicKey = ServerKeyBox.Text ?? "";
         _config.RootPath = RootPathBox.Text ?? "ClientFiles";

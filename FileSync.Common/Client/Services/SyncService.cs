@@ -120,7 +120,7 @@ public class SyncService
         try
         {
             using var client = new TcpClient();
-            await client.ConnectAsync(_config.ServerIp, _config.ServerPort);
+            await client.ConnectAsync(_config.ServerAddress, _config.ServerPort);
             using var stream = client.GetStream();
 
             var unreg = new Packet
@@ -142,7 +142,7 @@ public class SyncService
         try
         {
             using var client = new TcpClient();
-            await client.ConnectAsync(_config.ServerIp, _config.ServerPort);
+            await client.ConnectAsync(_config.ServerAddress, _config.ServerPort);
             using var stream = client.GetStream();
 
             // --- 0. Handshake ---

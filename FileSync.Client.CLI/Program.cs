@@ -47,7 +47,7 @@ class Program
     {
         Console.WriteLine("FileSync CLI");
         Console.WriteLine("Usage:");
-        Console.WriteLine("  config --server <ip> --port <port> [--key <pubkey>] [--root <path>]");
+        Console.WriteLine("  config --server <address> --port <port> [--key <pubkey>] [--root <path>]");
         Console.WriteLine("  sync");
         Console.WriteLine("  unregister");
     }
@@ -65,7 +65,7 @@ class Program
                 switch (arg)
                 {
                     case "--server":
-                        config.ServerIp = val;
+                        config.ServerAddress = val;
                         i++;
                         break;
                     case "--port":
@@ -86,14 +86,14 @@ class Program
 
         SaveConfig(config);
         Console.WriteLine("Configuration updated.");
-        Console.WriteLine($"Server: {config.ServerIp}:{config.ServerPort}");
+        Console.WriteLine($"Server: {config.ServerAddress}:{config.ServerPort}");
         Console.WriteLine($"Root: {config.RootPath}");
     }
 
     private static async Task HandleSync()
     {
         var config = LoadConfig();
-        Console.WriteLine($"Starting Sync with {config.ServerIp}:{config.ServerPort}...");
+        Console.WriteLine($"Starting Sync with {config.ServerAddress}:{config.ServerPort}...");
         try
         {
             var service = new SyncService(config);
@@ -109,7 +109,7 @@ class Program
     private static async Task HandleUnregister()
     {
         var config = LoadConfig();
-        Console.WriteLine($"Unregistering from {config.ServerIp}:{config.ServerPort}...");
+        Console.WriteLine($"Unregistering from {config.ServerAddress}:{config.ServerPort}...");
         try
         {
             var service = new SyncService(config);
