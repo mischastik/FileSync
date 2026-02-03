@@ -35,9 +35,15 @@ public class TcpServer
         }
     }
 
-    private void HandleClient(TcpClient client)
+    private async Task HandleClient(TcpClient client)
     {
-        Console.WriteLine($"Client connected: {client.Client.RemoteEndPoint}");
+        var remoteEp = client.Client.RemoteEndPoint;
+        Console.WriteLine($"[Server] Client connected: {remoteEp}");
+
+        // Configure Socket
+        client.NoDelay = true;
+        client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+
         using (client)
         using (var netStream = client.GetStream())
         {
@@ -45,43 +51,52 @@ public class TcpServer
             {
                 // 1. Handshake or Registration actions
                 // Expect Handshake or Unregister Packet
-                var pkg = Packet.ReadFromStream(netStream);
-                Console.WriteLine($"[Server] Received Packet Type: {pkg.Type}, Payload Length: {pkg.Payload.Length}");
+                Packet pkg;
+                try
+                {
+                    pkg = await Packet.ReadFromStreamAsync(netStream);
+                }
+                catch (EndOfStreamException)
+                {
+                    // Ignore immediate disconnects (often port probes)
+                    return;
+                }
+
+                Console.WriteLine($"[Server][{remoteEp}] Received Packet Type: {pkg.Type}, Payload Length: {pkg.Payload.Length}");
 
                 if (pkg.Type == MessageType.Unregister)
                 {
                     var idToUnreg = System.Text.Encoding.UTF8.GetString(pkg.Payload);
                     _db.UnregisterClient(idToUnreg);
-                    Console.WriteLine($"[Server] Unregistered client: {idToUnreg}");
+                    Console.WriteLine($"[Server][{remoteEp}] Unregistered client: {idToUnreg}");
                     return;
                 }
 
                 if (pkg.Type != MessageType.Handshake)
                 {
-                    Console.WriteLine($"[Server] Unexpected packet type: {pkg.Type}. Expected Handshake.");
+                    Console.WriteLine($"[Server][{remoteEp}] Unexpected packet type: {pkg.Type}. Expected Handshake.");
                     return;
                 }
 
                 // Handshake JSON: { "ClientId": "...", "PublicKey": "..." }
                 string jsonString = System.Text.Encoding.UTF8.GetString(pkg.Payload);
-                Console.WriteLine($"[Server] Handshake Payload: {jsonString}");
                 var handshakePayload = JsonSerializer.Deserialize<JsonElement>(pkg.Payload);
                 var clientId = handshakePayload.GetProperty("ClientId").GetString();
                 var publicKey = handshakePayload.GetProperty("PublicKey").GetString();
 
                 if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(publicKey))
                 {
-                    Console.WriteLine("Invalid handshake payload.");
+                    Console.WriteLine($"[Server][{remoteEp}] Invalid handshake payload.");
                     return;
                 }
 
-                Console.WriteLine($"Handshake from {clientId}");
+                Console.WriteLine($"[Server][{remoteEp}] Handshake from {clientId}");
 
                 // 1.1 Register/Validate Client
                 var existing = _db.GetClient(clientId);
                 if (existing == null)
                 {
-                    Console.WriteLine($"New client detected. Registering: {clientId}");
+                    Console.WriteLine($"[Server][{remoteEp}] New client detected. Registering: {clientId}");
                     _db.RegisterClient(clientId, publicKey);
                 }
                 else
@@ -89,23 +104,32 @@ public class TcpServer
                     // Existing client - Validate Public Key
                     if (existing.Value.PublicKey != publicKey)
                     {
-                        Console.WriteLine($"[Security] Client {clientId} failed validation: Public Key Mismatch!");
+                        Console.WriteLine($"[Server][{remoteEp}][Security] Client {clientId} failed validation: Public Key Mismatch!");
                         var err = new Packet { Type = MessageType.Error, Payload = System.Text.Encoding.UTF8.GetBytes("Invalid Public Key") };
-                        WritePacket(netStream, err);
+                        await WritePacketAsync(netStream, err, remoteEp);
                         return;
                     }
                 }
 
                 // Send Handshake ACK
                 var ack = new Packet { Type = MessageType.Handshake, Payload = System.Text.Encoding.UTF8.GetBytes("OK") };
-                WritePacket(netStream, ack);
+                await WritePacketAsync(netStream, ack, remoteEp);
 
                 // 2. Wait for Client's List (Step 1)
-                var clientListPkg = Packet.ReadFromStream(netStream);
-                if (clientListPkg.Type != MessageType.ListRequest) return;
+                Console.WriteLine($"[Server][{remoteEp}] Waiting for Client List Request...");
+                var clientListPkg = await Packet.ReadFromStreamAsync(netStream);
+                if (clientListPkg.Type != MessageType.ListRequest)
+                {
+                    Console.WriteLine($"[Server][{remoteEp}] Expected ListRequest, got {clientListPkg.Type}");
+                    return;
+                }
 
-                var clientFiles = JsonSerializer.Deserialize<List<Common.Models.FileMetadata>>(clientListPkg.Payload);
+                Console.WriteLine($"[Server][{remoteEp}] Received ListRequest. Processing...");
+                var clientFiles = JsonSerializer.Deserialize<List<Common.Models.FileMetadata>>(clientListPkg.Payload) ?? new List<Common.Models.FileMetadata>();
+
+                Console.WriteLine($"[Server][{remoteEp}] Scanning server files...");
                 var serverFiles = ScanServerFiles();
+                Console.WriteLine($"[Server][{remoteEp}] Scan complete. Comparing lists...");
 
                 // Process Client's List
                 foreach (var clientFile in clientFiles)
@@ -122,7 +146,7 @@ public class TcpServer
                             var fullPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
                             if (File.Exists(fullPath))
                             {
-                                Console.WriteLine($"Deleting {clientFile.RelativePath} (Sync from Client)");
+                                Console.WriteLine($"[Server][{remoteEp}] Deleting {clientFile.RelativePath} (Sync from Client)");
                                 File.Delete(fullPath);
                             }
 
@@ -140,7 +164,7 @@ public class TcpServer
                     if (serverFile == null)
                     {
                         fetchFromClient = true; // New file
-                        Console.WriteLine($"[Step1] New file from client: {clientFile.RelativePath}");
+                        Console.WriteLine($"[Server][{remoteEp}][Step1] New file from client: {clientFile.RelativePath}");
                     }
                     else if (serverFile.IsDeleted)
                     {
@@ -150,42 +174,42 @@ public class TcpServer
                         {
                             // Client file is NEWER (re-created after deletion), so we fetch it.
                             fetchFromClient = true;
-                            Console.WriteLine($"[Step1] Client file {clientFile.RelativePath} is newer ({clientFile.LastWriteTimeUtc}) than Server Tombstone ({serverFile.LastWriteTimeUtc}). Restoring.");
+                            Console.WriteLine($"[Server][{remoteEp}][Step1] Client file {clientFile.RelativePath} is newer ({clientFile.LastWriteTimeUtc}) than Server Tombstone ({serverFile.LastWriteTimeUtc}). Restoring.");
                         }
                         else
                         {
                             // Server deletion is newer (or same). Client has out-of-date file.
-                            Console.WriteLine($"[Step1] Ignoring {clientFile.RelativePath}: Server Tombstone ({serverFile.LastWriteTimeUtc}) >= Client ({clientFile.LastWriteTimeUtc})");
+                            Console.WriteLine($"[Server][{remoteEp}][Step1] Ignoring {clientFile.RelativePath}: Server Tombstone ({serverFile.LastWriteTimeUtc}) >= Client ({clientFile.LastWriteTimeUtc})");
                         }
                     }
                     else if (clientFile.LastWriteTimeUtc > serverFile.LastWriteTimeUtc)
                     {
                         fetchFromClient = true; // Newer on client
-                        Console.WriteLine($"[Step1] Update from client: {clientFile.RelativePath} (Client: {clientFile.LastWriteTimeUtc} > Server: {serverFile.LastWriteTimeUtc})");
+                        Console.WriteLine($"[Server][{remoteEp}][Step1] Update from client: {clientFile.RelativePath} (Client: {clientFile.LastWriteTimeUtc} > Server: {serverFile.LastWriteTimeUtc})");
                     }
                     else
                     {
-                        Console.WriteLine($"[Step1] Ignoring {clientFile.RelativePath}: Server ({serverFile.LastWriteTimeUtc}) >= Client ({clientFile.LastWriteTimeUtc})");
+                        Console.WriteLine($"[Server][{remoteEp}][Step1] Ignoring {clientFile.RelativePath}: Server ({serverFile.LastWriteTimeUtc}) >= Client ({clientFile.LastWriteTimeUtc})");
                     }
 
                     if (fetchFromClient)
                     {
-                        Console.WriteLine($"Requesting {clientFile.RelativePath} from client...");
+                        Console.WriteLine($"[Server][{remoteEp}] Requesting {clientFile.RelativePath} from client...");
                         var req = new Packet
                         {
                             Type = MessageType.FileRequest,
                             Payload = System.Text.Encoding.UTF8.GetBytes(clientFile.RelativePath)
                         };
-                        WritePacket(netStream, req);
+                        await WritePacketAsync(netStream, req, remoteEp);
 
-                        var resp = Packet.ReadFromStream(netStream);
+                        var resp = await Packet.ReadFromStreamAsync(netStream);
                         if (resp.Type == MessageType.FileResponse)
                         {
                             var localPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
                             Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
-                            File.WriteAllBytes(localPath, resp.Payload);
+                            await File.WriteAllBytesAsync(localPath, resp.Payload);
                             File.SetLastWriteTimeUtc(localPath, clientFile.LastWriteTimeUtc);
-                            Console.WriteLine($"Received {clientFile.RelativePath}");
+                            Console.WriteLine($"[Server][{remoteEp}] Received {clientFile.RelativePath} ({resp.Payload.Length} bytes)");
 
                             // Update DB
                             _db.UpdateFile(clientFile);
@@ -195,37 +219,40 @@ public class TcpServer
 
                 // Step 1 Done.
                 // 3. Send Server List (Step 2)
+                Console.WriteLine($"[Server][{remoteEp}] Step 1 Complete. Preparing server list for Step 2...");
                 serverFiles = ScanServerFiles(); // Rescan to include what we just got
                 var listResp = new Packet
                 {
                     Type = MessageType.ListResponse,
                     Payload = JsonSerializer.SerializeToUtf8Bytes(serverFiles)
                 };
-                WritePacket(netStream, listResp);
+                await WritePacketAsync(netStream, listResp, remoteEp);
 
                 // 4. Serve requested files
+                Console.WriteLine($"[Server][{remoteEp}] Waiting for client file requests...");
                 while (true)
                 {
                     try
                     {
-                        var req = Packet.ReadFromStream(netStream);
+                        var req = await Packet.ReadFromStreamAsync(netStream);
                         if (req.Type == MessageType.FileRequest)
                         {
                             var relPath = System.Text.Encoding.UTF8.GetString(req.Payload);
-                            Console.WriteLine($"Client requested {relPath}");
+                            Console.WriteLine($"[Server][{remoteEp}] Client requested {relPath}");
                             var fullPath = Path.Combine(_config.RootPath, relPath);
                             if (File.Exists(fullPath))
                             {
-                                var bytes = File.ReadAllBytes(fullPath);
-                                WritePacket(netStream, new Packet { Type = MessageType.FileResponse, Payload = bytes });
+                                var bytes = await File.ReadAllBytesAsync(fullPath);
+                                await WritePacketAsync(netStream, new Packet { Type = MessageType.FileResponse, Payload = bytes }, remoteEp);
                             }
                             else
                             {
-                                WritePacket(netStream, new Packet { Type = MessageType.Error });
+                                await WritePacketAsync(netStream, new Packet { Type = MessageType.Error }, remoteEp);
                             }
                         }
                         else if (req.Type == MessageType.EndOfSync)
                         {
+                            Console.WriteLine($"[Server][{remoteEp}] EndOfSync received.");
                             break;
                         }
                     }
@@ -235,7 +262,11 @@ public class TcpServer
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error handling client: {ex.Message}\n{ex.StackTrace}");
+                Console.WriteLine($"[Server][{remoteEp}] Error handling client: {ex.Message}");
+                if (!(ex is EndOfStreamException))
+                {
+                    Console.WriteLine(ex.StackTrace);
+                }
             }
         }
     }
@@ -307,9 +338,9 @@ public class TcpServer
         return dbFiles;
     }
 
-    private void WritePacket(NetworkStream stream, Common.Protocol.Packet packet)
+    private async Task WritePacketAsync(NetworkStream stream, Common.Protocol.Packet packet, EndPoint? remoteEp)
     {
-        var data = packet.Serialize();
-        stream.Write(data);
+        Console.WriteLine($"[Server][{remoteEp}] Sending Packet Type: {packet.Type}, Payload Length: {packet.Payload.Length}");
+        await packet.WriteToStreamAsync(stream);
     }
 }

@@ -120,6 +120,7 @@ public class SyncService
         try
         {
             using var client = new TcpClient();
+            client.NoDelay = true;
             await client.ConnectAsync(_config.ServerAddress, _config.ServerPort);
             using var stream = client.GetStream();
 
@@ -128,7 +129,7 @@ public class SyncService
                 Type = MessageType.Unregister,
                 Payload = System.Text.Encoding.UTF8.GetBytes(_config.ClientId)
             };
-            WritePacket(stream, unreg);
+            await WritePacketAsync(stream, unreg);
             Console.WriteLine("[SyncService] Unregister request sent.");
         }
         catch (Exception ex)
@@ -142,6 +143,10 @@ public class SyncService
         try
         {
             using var client = new TcpClient();
+            client.NoDelay = true;
+            client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+
+            Console.WriteLine($"[SyncService] Connecting to {_config.ServerAddress}:{_config.ServerPort}...");
             await client.ConnectAsync(_config.ServerAddress, _config.ServerPort);
             using var stream = client.GetStream();
 
@@ -152,61 +157,63 @@ public class SyncService
                 Type = MessageType.Handshake,
                 Payload = JsonSerializer.SerializeToUtf8Bytes(handshakeData)
             };
-            Console.WriteLine($"[Client] Sending Handshake: {JsonSerializer.Serialize(handshakeData)}");
-            WritePacket(stream, handshake);
+            await WritePacketAsync(stream, handshake);
 
             // Wait for Handshake ACK
-            var response = ReadPacket(stream);
-            Console.WriteLine($"[Client] Received Handshake Response: {response.Type}");
+            var response = await ReadPacketAsync(stream);
             if (response.Type != MessageType.ListResponse && response.Type != MessageType.Handshake)
             {
-                Console.WriteLine($"[Client] Unexpected response during handshake: {response.Type}");
+                Console.WriteLine($"[SyncService] Unexpected response during handshake: {response.Type}");
+            }
+            else
+            {
+                Console.WriteLine($"[SyncService] Handshake successful.");
             }
 
             // --- 1. Update from Client ---
+            Console.WriteLine($"[SyncService] Scanning local files for changes...");
             var localChanges = GetLocalFiles(true); // Delta Sync
-            Console.WriteLine($"[Client] Sending ListRequest with {localChanges.Count} changes.");
+            Console.WriteLine($"[SyncService] Sending ListRequest with {localChanges.Count} changes.");
 
             var listPacket = new Packet
             {
                 Type = MessageType.ListRequest, // Client sending its list
                 Payload = JsonSerializer.SerializeToUtf8Bytes(localChanges)
             };
-            WritePacket(stream, listPacket);
+            await WritePacketAsync(stream, listPacket);
 
             // Server processes list and requests files. 
             // We enter a loop to handle server requests until Server says "Step 1 Done" or starts Step 2.
             bool clientUpdateDone = false;
             while (!clientUpdateDone)
             {
-                var pkg = ReadPacket(stream);
+                var pkg = await ReadPacketAsync(stream);
                 switch (pkg.Type)
                 {
                     case MessageType.FileRequest:
-                        // Uplad File
+                        // Upload File
                         var relPath = System.Text.Encoding.UTF8.GetString(pkg.Payload);
                         var fullPath = Path.Combine(_config.RootPath, relPath);
                         if (File.Exists(fullPath))
                         {
+                            Console.WriteLine($"[SyncService] Uploading {relPath}...");
                             var bytes = await File.ReadAllBytesAsync(fullPath);
                             var fileResp = new Packet { Type = MessageType.FileResponse, Payload = bytes };
-                            WritePacket(stream, fileResp);
+                            await WritePacketAsync(stream, fileResp);
                         }
                         else
                         {
                             // File not found (deleted?) - Send empty for now or Error
-                            WritePacket(stream, new Packet { Type = MessageType.Error });
+                            await WritePacketAsync(stream, new Packet { Type = MessageType.Error });
                         }
                         break;
                     case MessageType.ListResponse:
                         // Server is done with Step 1 and is now sending US its list (Step 2 starts)
-                        // This packet contains Server's file list.
-                        HandleServerList(pkg.Payload, stream);
+                        Console.WriteLine($"[SyncService] Step 1 Complete. Processing Server List...");
+                        await HandleServerListAsync(pkg.Payload, stream);
                         clientUpdateDone = true;
 
-                        // Sync Successful (at least Step 1 and reception of Step 2)
-                        // If separate try/catch for handleServerList, we might be more granular.
-                        // But here, we consider sync round complete.
+                        // Sync Successful
                         _localState.LastSync = DateTime.UtcNow;
 
                         // Prune synced deletions
@@ -219,14 +226,20 @@ public class SyncService
                         {
                             _localState.KnownFiles.Remove(key);
                         }
-                        Console.WriteLine($"[Sync] Pruned {toRemove.Count} deleted files from state.");
+                        if (toRemove.Count > 0) Console.WriteLine($"[SyncService] Pruned {toRemove.Count} deleted files from state.");
 
                         _localState.Save();
-                        Console.WriteLine($"[Sync] Sync Complete. LastSync Updated to {_localState.LastSync}");
+                        Console.WriteLine($"[SyncService] Sync Complete. LastSync Updated to {_localState.LastSync}");
+
+                        // Send EndOfSync to server
+                        await WritePacketAsync(stream, new Packet { Type = MessageType.EndOfSync });
                         break;
                     case MessageType.EndOfSync:
                         clientUpdateDone = true;
                         break;
+                    case MessageType.Error:
+                        var msg = System.Text.Encoding.UTF8.GetString(pkg.Payload);
+                        throw new Exception($"Server reported error: {msg}");
                 }
             }
         }
@@ -236,7 +249,7 @@ public class SyncService
         }
     }
 
-    private void HandleServerList(byte[] payload, NetworkStream stream)
+    private async Task HandleServerListAsync(byte[] payload, NetworkStream stream)
     {
         var serverFiles = JsonSerializer.Deserialize<List<FileMetadata>>(payload);
         if (serverFiles == null) return;
@@ -247,24 +260,19 @@ public class SyncService
 
             if (serverFile.IsDeleted)
             {
-                // Server says delete this file
-                // Check if we have a Newer local change?
                 if (File.Exists(localPath))
                 {
                     var localInfo = new FileInfo(localPath);
                     if (localInfo.LastWriteTimeUtc > serverFile.LastWriteTimeUtc)
                     {
-                        Console.WriteLine($"[Sync] Conflict: Local file is NEWER ({localInfo.LastWriteTimeUtc}) than Server Deletion ({serverFile.LastWriteTimeUtc}). Keeping Local.");
+                        Console.WriteLine($"[SyncService] Conflict: Local file {serverFile.RelativePath} is NEWER than Server Deletion. Keeping Local.");
                         continue;
                     }
 
-                    Console.WriteLine($"[Sync] Deleting local file {serverFile.RelativePath} (Sync from Server)");
+                    Console.WriteLine($"[SyncService] Deleting local file {serverFile.RelativePath} (Sync from Server)");
                     File.Delete(localPath);
                 }
 
-                // Server says deleted. We accepted it (file is gone from disk).
-                // We should stop tracking it in LocalState so we don't report it as missing again, 
-                // and so we don't constantly Prune it.
                 if (_localState.KnownFiles.ContainsKey(serverFile.RelativePath))
                 {
                     _localState.KnownFiles.Remove(serverFile.RelativePath);
@@ -273,13 +281,9 @@ public class SyncService
             }
 
             bool needsUpdate = true;
-
             if (File.Exists(localPath))
             {
                 var localInfo = new FileInfo(localPath);
-                Console.WriteLine($"[Sync] Checking {serverFile.RelativePath}: Local({localInfo.LastWriteTimeUtc} Kind={localInfo.LastWriteTimeUtc.Kind}) vs Server({serverFile.LastWriteTimeUtc} Kind={serverFile.LastWriteTimeUtc.Kind})");
-
-                // Simple comparison: If server is newer
                 if (localInfo.LastWriteTimeUtc >= serverFile.LastWriteTimeUtc)
                 {
                     needsUpdate = false;
@@ -288,42 +292,40 @@ public class SyncService
 
             if (needsUpdate)
             {
-                Console.WriteLine($"[Sync] Updating {serverFile.RelativePath} from Server.");
-                // Request File
+                Console.WriteLine($"[SyncService] Downloading {serverFile.RelativePath} from Server...");
                 var req = new Packet
                 {
                     Type = MessageType.FileRequest,
                     Payload = System.Text.Encoding.UTF8.GetBytes(serverFile.RelativePath)
                 };
-                WritePacket(stream, req);
+                await WritePacketAsync(stream, req);
 
-                // Read Content
-                var resp = ReadPacket(stream);
+                var resp = await ReadPacketAsync(stream);
                 if (resp.Type == MessageType.FileResponse)
                 {
-                    // Ensure Dir
                     Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
-                    File.WriteAllBytes(localPath, resp.Payload);
-                    File.SetLastWriteTimeUtc(localPath, serverFile.LastWriteTimeUtc); // Sync timestamps
+                    await File.WriteAllBytesAsync(localPath, resp.Payload);
+                    File.SetLastWriteTimeUtc(localPath, serverFile.LastWriteTimeUtc);
 
-                    // Update State
-                    serverFile.IsDeleted = false; // Just to be sure
+                    serverFile.IsDeleted = false;
                     _localState.UpdateFile(serverFile);
+                    Console.WriteLine($"[SyncService] Received {serverFile.RelativePath} ({resp.Payload.Length} bytes)");
                 }
             }
         }
-        // Optimize: Save once after processing server list
         _localState.Save();
     }
 
-    private void WritePacket(NetworkStream stream, Packet packet)
+    private async Task WritePacketAsync(NetworkStream stream, Packet packet)
     {
-        var data = packet.Serialize();
-        stream.Write(data);
+        Console.WriteLine($"[SyncService] Sending Packet Type: {packet.Type}, Payload Length: {packet.Payload.Length}");
+        await packet.WriteToStreamAsync(stream);
     }
 
-    private Packet ReadPacket(NetworkStream stream)
+    private async Task<Packet> ReadPacketAsync(NetworkStream stream)
     {
-        return Packet.ReadFromStream(stream);
+        var pkg = await Packet.ReadFromStreamAsync(stream);
+        Console.WriteLine($"[SyncService] Received Packet Type: {pkg.Type}, Payload Length: {pkg.Payload.Length}");
+        return pkg;
     }
 }
