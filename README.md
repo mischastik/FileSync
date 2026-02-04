@@ -10,7 +10,7 @@ This is a test project to assess the capabilities of AI-Coding Tools. Feel free 
 The server and client applications are console applications. The server application can be started without parameters. The client application requires the server IP and port as parameters. There is also a GUI-based client.
 
 A Docker configuration for the server is available to run it within a container.
-Use the command
+While in the root directory of the project, run  the command
 ```
 docker-compose up -d
 ```
