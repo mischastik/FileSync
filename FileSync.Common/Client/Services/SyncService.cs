@@ -50,30 +50,28 @@ public class SyncService
             bool isKnown = _localState.KnownFiles.TryGetValue(relativePath, out var existingMeta);
             bool isNew = !isKnown;
 
-            if (deltaOnly && _localState.LastSync.HasValue)
+            if (deltaOnly && isKnown && existingMeta != null)
             {
-                if (!isNew && meta.LastWriteTimeUtc <= _localState.LastSync.Value)
+                // Core Delta Logic: Skip if we have a known record and the file hasn't changed since then.
+                // We use a 1-second tolerance for timestamps to handle filesystem/JSON precision differences.
+                bool timestampMatch = Math.Abs((meta.LastWriteTimeUtc - existingMeta.LastWriteTimeUtc).TotalSeconds) < 1;
+
+                if (!existingMeta.IsDeleted && timestampMatch && meta.Size == existingMeta.Size)
                 {
-                    // Debug Log
-                    // Console.WriteLine($"[Delta-Skip] {meta.RelativePath} ({meta.LastWriteTimeUtc}) <= LastSync ({_localState.LastSync.Value})");
-                    continue; // Skip unchanged existing file
+                    // Skip unchanged version we already successfully synced
+                    continue;
                 }
-                else if (isNew)
-                {
-                    Console.WriteLine($"[Delta-New] {meta.RelativePath} (New file even with old timestamp)");
-                }
+
+                if (existingMeta.IsDeleted)
+                    Console.WriteLine($"[Scan] {meta.RelativePath} was previously deleted. Re-syncing.");
                 else
-                {
-                    Console.WriteLine($"[Delta-Include] {meta.RelativePath} ({meta.LastWriteTimeUtc} > {_localState.LastSync.Value})");
-                }
+                    Console.WriteLine($"[Scan] {meta.RelativePath} has changed ({meta.LastWriteTimeUtc} vs {existingMeta.LastWriteTimeUtc}). Syncing.");
             }
-            else if (deltaOnly && !_localState.LastSync.HasValue)
+            else if (deltaOnly && isNew)
             {
-                Console.WriteLine($"[Delta-All] {meta.RelativePath} (First Sync)");
+                Console.WriteLine($"[Scan] New file: {meta.RelativePath} ({meta.LastWriteTimeUtc})");
             }
 
-            // Update known state
-            _localState.UpdateFile(meta);
             files.Add(meta);
         }
 
@@ -115,9 +113,6 @@ public class SyncService
         }
 
         if (deltaOnly) Console.WriteLine($"[GetChanges] Found {files.Count} changes to sync.");
-
-        // Optimize: Save once after scanning all files
-        _localState.Save();
 
         return files;
     }
@@ -220,27 +215,6 @@ public class SyncService
                         Console.WriteLine($"[SyncService] Step 1 Complete. Processing Server List...");
                         await HandleServerListAsync(pkg.Payload, stream);
                         clientUpdateDone = true;
-
-                        // Sync Successful
-                        _localState.LastSync = DateTime.UtcNow;
-
-                        // Prune synced deletions
-                        var toRemove = _localState.KnownFiles.Values
-                            .Where(f => f.IsDeleted && f.LastWriteTimeUtc <= _localState.LastSync)
-                            .Select(f => f.RelativePath)
-                            .ToList();
-
-                        foreach (var key in toRemove)
-                        {
-                            _localState.KnownFiles.Remove(key);
-                        }
-                        if (toRemove.Count > 0) Console.WriteLine($"[SyncService] Pruned {toRemove.Count} deleted files from state.");
-
-                        _localState.Save();
-                        Console.WriteLine($"[SyncService] Sync Complete. LastSync Updated to {_localState.LastSync}");
-
-                        // Send EndOfSync to server
-                        await WritePacketAsync(stream, new Packet { Type = MessageType.EndOfSync });
                         break;
                     case MessageType.EndOfSync:
                         clientUpdateDone = true;
@@ -250,6 +224,32 @@ public class SyncService
                         throw new Exception($"Server reported error: {msg}");
                 }
             }
+
+            // Sync Successful - Persist State
+            foreach (var change in localChanges)
+            {
+                _localState.UpdateFile(change);
+            }
+
+            _localState.LastSync = DateTime.UtcNow;
+
+            // Prune synced deletions
+            var toRemove = _localState.KnownFiles.Values
+                .Where(f => f.IsDeleted && f.LastWriteTimeUtc <= _localState.LastSync)
+                .Select(f => f.RelativePath)
+                .ToList();
+
+            foreach (var key in toRemove)
+            {
+                _localState.KnownFiles.Remove(key);
+            }
+            if (toRemove.Count > 0) Console.WriteLine($"[SyncService] Pruned {toRemove.Count} deleted files from state.");
+
+            _localState.Save();
+            Console.WriteLine($"[SyncService] Sync Complete. KnownFiles: {_localState.KnownFiles.Count}, LastSync: {_localState.LastSync}");
+
+            // Send EndOfSync to server if we haven't already
+            await WritePacketAsync(stream, new Packet { Type = MessageType.EndOfSync });
         }
         catch (Exception ex)
         {
@@ -321,7 +321,6 @@ public class SyncService
                 }
             }
         }
-        _localState.Save();
     }
 
     private async Task WritePacketAsync(NetworkStream stream, Packet packet)
