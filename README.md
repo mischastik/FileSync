@@ -22,6 +22,7 @@ The server maintains the "Source of Truth".
 ```
 
 **Docker:**
+A Docker configuration for the server is available to run it within a container. While in the root directory of the project, run the command:
 ```powershell
 docker-compose up -d
 ```
