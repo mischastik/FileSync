@@ -2,117 +2,136 @@
 Server-/ Client-based TCP/IP File Synchronization Tool
 
 ## Warning
-This is a test project to assess the capabilities of AI-Coding Tools. Feel free to use or improve it but DON'T TRUST IT with sensible data. Your data may not be safe in terms of access by third parites or may be lost or compromised due to bugs.
+This is a test project to assess the capabilities of AI-Coding Tools. Feel free to use or improve it but **DON'T TRUST IT with sensitive data**. Your data may not be safe in terms of access by third parties or may be lost or compromised due to bugs.
+
+## Modern Features & Improvements
+- **Async Networking**: Fully asynchronous non-blocking I/O for better performance and reliability.
+- **Hostname Support**: Connect using IP addresses or domains.
+- **Robust Delta-Sync**: Per-file metadata comparison with 1-second timestamp tolerance ensures reliable updates even when files are copied with old timestamps.
+- **Recovery Options**: Built-in "Force Resync" (GUI) and `resync` (CLI) to recover from out-of-sync states.
+- **Docker Ready**: Easy server deployment using Docker and Docker Compose.
 
 ## Usage
 
-### Start Up
-The server and client applications are console applications. The server application can be started without parameters. The client application requires the server IP and port as parameters. There is also a GUI-based client.
+### Server Setup (Console or Docker)
+The server maintains the "Source of Truth".
 
-A Docker configuration for the server is available to run it within a container.
-Use the command
+**Console:**
+```powershell
+./FileSync.Server.exe
 ```
+
+**Docker:**
+```powershell
 docker-compose up -d
 ```
-to start the server. You may require to add 'sudo' to the command if you are on Linux.
+The server outputs its address, port, and **Public Key**. Clients need this key for the initial encrypted handshake.
 
-The server outputs its public IP address and port to the console. This IP address and port need to be provided to the client application.
+### Client Setup (CLI)
+1. **Configure:**
+   ```powershell
+   ./FileSync.Client.CLI.exe config --server <address> --port <port> --key "<server-public-key>" --root "<path-to-sync>"
+   ```
+2. **Sync:**
+   ```powershell
+   ./FileSync.Client.CLI.exe sync
+   ```
+3. **Emergency Resync (Clear local state & full sync):**
+   ```powershell
+   ./FileSync.Client.CLI.exe resync
+   ```
 
-The client application can be started with the command
-```
-FileSyncClient.exe <server-ip> <server-port>
-```
+### Client Setup (GUI)
+The **Avalonia UI** client allows manual synchronization with visual status:
+- **Synchronize**: Standard delta-sync.
+- **Force Resync**: Clears local state and forces a full server-to-client comparison.
+- **Unregister**: Removes client identity from the server.
 
-The client application will then ask for the server public key. This key needs to be manually entered by the user of each client prior to the first connection to the server.
-
-The file 'config.json' in the client's configuration directory contains the client's public and private key as well as the server public key and the root path of the synchronized folder. You may need to edit it to your requirements.
-
-### Network and Internet
+## Network and Internet Safety
 If you run the applications within your local network, you should be fine. You may need to allow the server application to listen on the port it is configured to use in your firewalls.
 
-If you intend to use the application over the internet, you need to configure a port forward rule in your router. 
+**WARNING: Using the application over the internet is RISKY.** 
+It exposes the application to the internet where any third party could attempt to exploit vulnerabilities. Only do this if you are aware of the risk and know how to configure secure port forwarding.
 
-**WARNING: This can be risky as it exposes the application to the internet. Any third party could access the server and and exploit vulnerabilities. Only do this, if you are aware of the risk and know what you're doing.**
+If you use a Dynamic DNS service, you can provide the domain name to the client instead of an IP address.
 
-A port forward rule forwards a port from your router to the server's IP address. The server's IP address can be found by running the command 'ipconfig' on Windows or 'ifconfig' on Linux.
+## Internal Principles
 
-The port forward rule needs to be configured in your router's settings. The exact steps vary depending on your router's model and manufacturer. 
+### Data Transfer & Encryption
+Communication uses a proprietary binary protocol over TCP/IP (default port 32111). 
+- **Encryption**: RSA-based handshake and encrypted metadata exchange.
+- **Async**: Built using `async/await` and `NetworkStream` async primitives.
 
-In this case, you need to provide you public IP to the client application. 
+### Synchronization Mechanism
+Updates are always initiated manually by the user.
 
-Most likely you won't have a static IP, so this IP will change regularly. In this case, you need to update the IP address in the client application or use a Dynamic DNS service that automatically maps your IP address to a domain name. Usually, you need to configure your internet router to report the IP address changes to the Dynamic DNS service.
+#### 1st Step: Update from Client
+1. **Delta-Scan**: Client scans the root folder and compares each file's `LastWriteTime` and `Size` against its local state (`client_state.json`) using a 1-second tolerance.
+2. **Transfer**: Client sends a list of new, modified, or deleted files to the server.
+3. **Server Processing**: Server updates its file storage and database. Conflict resolution follows "Last Write Wins" (UTC timestamps).
 
-## Abstract
-FileSync is a Server- / Client-based file and folder synchronization tool written in C#. It is compatible with Linux and Windows.
-The server holds the most recent versions of all files and takes care of synchronizing changes over all clients.
-Each client has a root folder configured for which all contents, files and folders, are synchronized, regardless of their contents and formats.
-The server maintains an internal database to keep track of known clients and other relevant metadata.
+#### 2nd Step: Update of the Client
+1. **Server Metadata List**: The server sends a full list of its current metadata to the client.
+2. **Client Comparison**: The client identifies what it needs from the server (deletions or downloads).
+3. **Reconciliation**: Client downloads new/modified files and updates its local state only upon successful completion.
 
-## Data Transfer 
-The communication between server and clients is a proprietary, binary protocoll over TCP/IP. The default port is 32111 but other ports can be configured, however, one server only communicates over a single port. A client may only communicate with one server. If another server should be used it needs to unregister from the original server.
+### Registration & File Handling
+- **IDs**: Each client generates a unique 64-bit ID.
+- **Deletions**: The server tracks deletion events to propagate them to all clients before pruning records.
+- **Unregistration**: Users can unregister to clear their identity from the server's known client list.
 
-## Encryption
-The communication between server and client is encrypted. The public key of the server is manually entered by the user of each client prior to the first connection to the server.
+## Configuration Files
 
-## Synchronization Mechanism
+The application uses JSON files for configuration and state persistence. These files are typically found in the executable's directory or a dedicated `Config` folder.
 
-Updates are always initiated manually by the user of a client. 
+### Server: `server_config.json`
+Located in the server executable directory. It is generated automatically on first run.
 
-### 1st Step: Update from Client
-- If there are no changes since the last synchronization, this step is skipped and the client proceeds with the second step.
-- Clients initiates synchronization 
-- It checks all the file modification and creation dates and compares them with the state of the last update to determine any changes.
-- It creates a list of all files that were either newly created, deleted or changed.
-- The list contains the file paths (relative to the root folder) and all file metadata.
-- It opens a connection to the server and sends the list. 
-- Updates are processed by the server on a first come first served basis, i.e. while an update is processed, other incoming updates are queued.
-- The server checks if a files modification date is newer or the file was newly created and deleted.
-- For all files which have a newer state on the client, it requests the contents of the file from the client and updates it's state.
-### 2nd Step: Update of the Client
-- When the new server has processed an update from the client, it in turn updates the client.
-- It sends a full list of file metadata to the client including file modification, deletion and creation dates.
-- The client compares the list with its state
-  - It carries out all new deletions
-  - It requests all contents of new or modified files from the server and updates its folder and state.
- 
-### Registration of New Clients
-Each client gives itself a unique, random ID with a length 64 bits. The server keeps a list of all known clients and their public encryption keys. If a new client first connects to the server, it transfers its public key to the server.
+- **`RootPath`**: The directory on the server where all synchronized files are stored.
+- **`Port`**: The TCP port the server listens on (default: `32111`).
+- **`PublicKey`**: The server's RSA public key (shared with clients).
+- **`PrivateKey`**: The server's RSA private key (keep this secret).
 
-### File Deletion Handling
-The server also keeps track of file deletion events and their transfer to the clients. If a deletion was synchronized to all the clients, the server removes the record of the deletion event in order to avoid excessive growth of the database.
+**Sample:**
+```json
+{
+  "RootPath": "Storage",
+  "Port": 32111,
+  "PublicKey": "MIIBCgKCAQ...",
+  "PrivateKey": "MIIEpAIBAA..."
+}
+```
 
-### Unregistration of Clients
-The user of a client can unregister it from the server. In case of an unregistration, the server updates its list of known clients.
+### Client: `config.json`
+Located in the client executable directory. Created via the `config` command or manually.
 
-## Configuration
-Configurations are held in JSON files and the server's resp. clients' configuration directories.
-The configuration parameters are:
+- **`ServerAddress`**: Hostname or IP of the FileSync server.
+- **`ServerPort`**: Port of the FileSync server.
+- **`RootPath`**: Local directory to be synchronized.
+- **`ClientId`**: Unique UUID for this client instance.
+- **`PublicKey` / `PrivateKey`**: Client's RSA key pair for secure handshake.
+- **`ServerPublicKey`**: The server's public key (must be entered manually for the first connection).
 
-### Client
-- Root folder
-- Server IP
-- Server port
-- Server public key
-- Client public key
-- Client private key
+**Sample:**
+```json
+{
+  "ServerAddress": "sync.example.com",
+  "ServerPort": 32111,
+  "RootPath": "C:\\Users\\User\\Documents\\Sync",
+  "ClientId": "bd664ad8-df4c-4d49-b755-4816da0ba18c",
+  "ServerPublicKey": "MIIBCgKCAQ..."
+}
+```
 
-### Server
-- Root folder
-- Port
-- Server public key
-- Server private key
- 
-## Applications
+### Client State: `client_state.json`
+This file tracks the synchronization status and is critical for delta-sync functionality. **Do not edit manually** unless troubleshooting.
 
-### Common Code
-All code that is shared between the server and client applications is contained in a .NET DLL that is references by both applications.
+- **`KnownFiles`**: A dictionary tracking every file's `RelativePath`, `LastWriteTimeUtc`, and `Size`.
+- **`LastSync`**: Timestamp of the last successful full synchronization.
 
-### Client
-The client is an application with a graphical user interface that displays the synchoronized folder structure and highlights modified files and folders since the last synchronization (by using a bold font and different color).
-It also displays the server IP and port, and allows to unregister the client. When the client is first started or first started after an unregistration, the user is asked to provide the server IP and port (default port 32111). If no client encrytion key pair is set in the configuration, it creates one and writes it the to configuration.
-In case of an unregistration event, the user is asked if contents of the synced folder should be deleted or moved to a provided location. The original folder should be empty if a client is not registered.
-The UI contains a "Synchronize" button to manually initiate a synchronization with the server.
-
-### Server
-The server is a console application without user interface. If no private or public key are set after startup, it creates a key pair and writes it the the JSON configuration file.
+## Technologies
+- **Runtime**: .NET 9
+- **GUI**: Avalonia UI
+- **Database**: LiteDB (Server-side metadata)
+- **Networking**: System.Net.Sockets (Async)
 
