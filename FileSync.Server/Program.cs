@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using FileSync.Common.Security;
 using FileSync.Server.Config;
 using FileSync.Server.Data;
@@ -10,9 +11,11 @@ namespace FileSync.Server;
 
 class Program
 {
-    static void Main(string[] args)
+    static async Task Main(string[] args)
     {
-        Console.WriteLine("FileSync Server starting...");
+        int pid = Environment.ProcessId;
+        int tid = Environment.CurrentManagedThreadId;
+        Console.WriteLine($"[{pid}:{tid}] FileSync Server starting...");
 
         // Load or Create Config
         var configPath = Path.Combine("Config", "server_config.json");
@@ -38,11 +41,11 @@ class Program
             var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(configPath, json);
         }
-        
+
         // Ensure Storage Dir
         Directory.CreateDirectory(config.RootPath);
-        
-        Console.WriteLine($"Public Key (share with clients):\n{config.PublicKey}\n");
+
+        Console.WriteLine($"[{pid}:{tid}] Public Key (share with clients):\n{config.PublicKey}\n");
 
         // Init DB
         var dbPath = Path.Combine("Data", "server.db");
@@ -51,6 +54,6 @@ class Program
 
         // Start Server
         var server = new TcpServer(config, db);
-        server.Start();
+        await server.StartAsync();
     }
 }

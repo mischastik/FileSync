@@ -22,23 +22,34 @@ public class TcpServer
         _listener = new TcpListener(IPAddress.Any, config.Port);
     }
 
-    public void Start()
+    public async Task StartAsync()
     {
         _listener.Start();
         _isRunning = true;
-        Console.WriteLine($"Server started on port {_config.Port}");
+        int pid = Environment.ProcessId;
+        int tid = Environment.CurrentManagedThreadId;
+        Console.WriteLine($"[{pid}:{tid}] Server started on port {_config.Port}");
 
         while (_isRunning)
         {
-            var client = _listener.AcceptTcpClient();
-            Task.Run(() => HandleClient(client));
+            try
+            {
+                var client = await _listener.AcceptTcpClientAsync();
+                _ = Task.Run(() => HandleClient(client));
+            }
+            catch (Exception ex) when (_isRunning)
+            {
+                Console.WriteLine($"[{pid}:{tid}] Error accepting client: {ex.Message}");
+            }
         }
     }
 
     private async Task HandleClient(TcpClient client)
     {
         var remoteEp = client.Client.RemoteEndPoint;
-        Console.WriteLine($"[Server] Client connected: {remoteEp}");
+        int pid = Environment.ProcessId;
+        int tid = Environment.CurrentManagedThreadId;
+        Console.WriteLine($"[{pid}:{tid}][Server] Client connected: {remoteEp}");
 
         // Configure Socket
         client.NoDelay = true;
@@ -340,7 +351,9 @@ public class TcpServer
 
     private async Task WritePacketAsync(NetworkStream stream, Common.Protocol.Packet packet, EndPoint? remoteEp)
     {
-        Console.WriteLine($"[Server][{remoteEp}] Sending Packet Type: {packet.Type}, Payload Length: {packet.Payload.Length}");
+        int pid = Environment.ProcessId;
+        int tid = Environment.CurrentManagedThreadId;
+        Console.WriteLine($"[{pid}:{tid}][Server][{remoteEp}] Sending Packet Type: {packet.Type}, Payload Length: {packet.Payload.Length}");
         await packet.WriteToStreamAsync(stream);
     }
 }
