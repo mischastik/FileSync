@@ -234,6 +234,50 @@ goto :error
 
 :after_old
 
+echo.
+echo ==========================================
+echo CASE 6: Empty Directory Synchronization
+echo ==========================================
+echo [Action] Creating empty_dir in A
+mkdir "%CLIENT_A%\Files\empty_dir"
+
+echo [Sync] Client A Syncing...
+pushd "%CLIENT_A%"
+FileSync.Client.CLI.exe sync > "sync_dir.log" 2>&1
+popd
+
+echo [Sync] Client B Syncing...
+pushd "%CLIENT_B%"
+FileSync.Client.CLI.exe sync > "sync_dir.log" 2>&1
+popd
+
+if exist "%CLIENT_B%\Files\empty_dir" (
+    echo [PASS] empty_dir found in Client B.
+) else (
+    echo [FAIL] empty_dir NOT found in Client B.
+    goto :error
+)
+
+echo [Action] Deleting empty_dir in A
+rmdir "%CLIENT_A%\Files\empty_dir"
+
+echo [Sync] Client A Syncing Cleanup...
+pushd "%CLIENT_A%"
+FileSync.Client.CLI.exe sync > "sync_dir_del.log" 2>&1
+popd
+
+echo [Sync] Client B Syncing Cleanup...
+pushd "%CLIENT_B%"
+FileSync.Client.CLI.exe sync > "sync_dir_del.log" 2>&1
+popd
+
+if not exist "%CLIENT_B%\Files\empty_dir" (
+    echo [PASS] empty_dir deleted from Client B.
+) else (
+    echo [FAIL] empty_dir STILL EXISTS in Client B.
+    goto :error
+)
+
 echo ==========================================
 echo ALL TESTS PASSED
 echo ==========================================

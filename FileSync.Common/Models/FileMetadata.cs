@@ -8,5 +8,6 @@ public class FileMetadata
     public DateTime LastWriteTimeUtc { get; set; }
     public DateTime CreationTimeUtc { get; set; }
     public bool IsDeleted { get; set; }
+    public bool IsDirectory { get; set; }
     public long Size { get; set; }
 }

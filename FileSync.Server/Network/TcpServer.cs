@@ -157,8 +157,13 @@ public class TcpServer
                             var fullPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
                             if (File.Exists(fullPath))
                             {
-                                Console.WriteLine($"[Server][{remoteEp}] Deleting {clientFile.RelativePath} (Sync from Client)");
+                                Console.WriteLine($"[{pid}:{tid}][Server][{remoteEp}] Deleting file {clientFile.RelativePath} (Sync from Client)");
                                 File.Delete(fullPath);
+                            }
+                            else if (Directory.Exists(fullPath))
+                            {
+                                Console.WriteLine($"[{pid}:{tid}][Server][{remoteEp}] Deleting directory {clientFile.RelativePath} (Sync from Client)");
+                                Directory.Delete(fullPath, true);
                             }
 
                             // Update DB
@@ -166,6 +171,21 @@ public class TcpServer
                             _db.UpdateFile(clientFile);
                             // Update in-memory list so we send correct list back
                             if (serverFile != null) serverFile.IsDeleted = true;
+                        }
+                        continue;
+                    }
+
+                    if (clientFile.IsDirectory)
+                    {
+                        if (serverFile == null || serverFile.IsDeleted)
+                        {
+                            var fullPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
+                            if (!Directory.Exists(fullPath))
+                            {
+                                Console.WriteLine($"[{pid}:{tid}][Server][{remoteEp}] Creating directory {clientFile.RelativePath} (Sync from Client)");
+                                Directory.CreateDirectory(fullPath);
+                            }
+                            _db.UpdateFile(clientFile);
                         }
                         continue;
                     }
@@ -292,6 +312,40 @@ public class TcpServer
         // If we want strict syncing, we might rely purely on DB, but scanning disk handles server-side edits.
         if (!Directory.Exists(_config.RootPath)) Directory.CreateDirectory(_config.RootPath);
 
+        // 1a. Scan Directories on Disk
+        foreach (var dir in Directory.GetDirectories(_config.RootPath, "*", SearchOption.AllDirectories))
+        {
+            var info = new DirectoryInfo(dir);
+            var relativePath = Path.GetRelativePath(_config.RootPath, dir);
+
+            if (dbFileDict.TryGetValue(relativePath, out var dbEntry))
+            {
+                if (!dbEntry.IsDirectory || dbEntry.IsDeleted)
+                {
+                    dbEntry.IsDirectory = true;
+                    dbEntry.IsDeleted = false;
+                    dbEntry.LastWriteTimeUtc = info.LastWriteTimeUtc;
+                    _db.UpdateFile(dbEntry);
+                }
+            }
+            else
+            {
+                var newEntry = new Common.Models.FileMetadata
+                {
+                    RelativePath = relativePath,
+                    LastWriteTimeUtc = info.LastWriteTimeUtc,
+                    CreationTimeUtc = info.CreationTimeUtc,
+                    Size = 0,
+                    IsDeleted = false,
+                    IsDirectory = true
+                };
+                _db.UpdateFile(newEntry);
+                dbFiles.Add(newEntry);
+                dbFileDict[relativePath] = newEntry;
+            }
+        }
+
+        // 1b. Scan Files on Disk
         foreach (var file in Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories))
         {
             var info = new FileInfo(file);
@@ -300,11 +354,12 @@ public class TcpServer
             if (dbFileDict.TryGetValue(relativePath, out var dbEntry))
             {
                 // If disk is newer, update DB
-                if (info.LastWriteTimeUtc > dbEntry.LastWriteTimeUtc)
+                if (info.LastWriteTimeUtc > dbEntry.LastWriteTimeUtc || dbEntry.IsDirectory || dbEntry.IsDeleted)
                 {
                     dbEntry.LastWriteTimeUtc = info.LastWriteTimeUtc;
                     dbEntry.Size = info.Length;
                     dbEntry.IsDeleted = false;
+                    dbEntry.IsDirectory = false;
                     _db.UpdateFile(dbEntry);
                 }
             }
@@ -317,7 +372,8 @@ public class TcpServer
                     LastWriteTimeUtc = info.LastWriteTimeUtc,
                     CreationTimeUtc = info.CreationTimeUtc,
                     Size = info.Length,
-                    IsDeleted = false
+                    IsDeleted = false,
+                    IsDirectory = false
                 };
                 _db.UpdateFile(newEntry);
                 dbFiles.Add(newEntry);
@@ -330,13 +386,14 @@ public class TcpServer
         // Actually, if file is missing from disk but DB says IsDeleted=false, it means someone deleted it manually on server.
         // We should detect that too.
 
-        var currentDiskFiles = Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories)
-                                        .Select(f => Path.GetRelativePath(_config.RootPath, f))
+        var currentPaths = Directory.GetDirectories(_config.RootPath, "*", SearchOption.AllDirectories)
+                                        .Concat(Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories))
+                                        .Select(p => Path.GetRelativePath(_config.RootPath, p))
                                         .ToHashSet();
 
         foreach (var dbFile in dbFiles)
         {
-            if (!dbFile.IsDeleted && !currentDiskFiles.Contains(dbFile.RelativePath))
+            if (!dbFile.IsDeleted && !currentPaths.Contains(dbFile.RelativePath))
             {
                 // Deleted manually on server
                 dbFile.IsDeleted = true;

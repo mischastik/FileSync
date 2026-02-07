@@ -37,10 +37,19 @@ public class MetadataDb
                 LastWriteTimeUtc TEXT,
                 CreationTimeUtc TEXT,
                 IsDeleted INTEGER,
+                IsDirectory INTEGER DEFAULT 0,
                 Size INTEGER
             );
         ";
         cmd.ExecuteNonQuery();
+
+        // Migration: Add IsDirectory if it doesn't exist (for existing DBs)
+        try
+        {
+            cmd.CommandText = "ALTER TABLE Files ADD COLUMN IsDirectory INTEGER DEFAULT 0;";
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException) { /* Column might already exist */ }
     }
 
     // Methods to AddClient, GetClient, UpdateFile, GetAllFiles, etc. will go here
@@ -91,13 +100,14 @@ public class MetadataDb
         connection.Open();
         var cmd = connection.CreateCommand();
         cmd.CommandText = @"
-            INSERT OR REPLACE INTO Files (RelativePath, LastWriteTimeUtc, CreationTimeUtc, IsDeleted, Size)
-            VALUES ($path, $lastWrite, $creation, $deleted, $size)";
+            INSERT OR REPLACE INTO Files (RelativePath, LastWriteTimeUtc, CreationTimeUtc, IsDeleted, IsDirectory, Size)
+            VALUES ($path, $lastWrite, $creation, $deleted, $isDir, $size)";
 
         cmd.Parameters.AddWithValue("$path", file.RelativePath);
         cmd.Parameters.AddWithValue("$lastWrite", file.LastWriteTimeUtc.ToString("o"));
         cmd.Parameters.AddWithValue("$creation", file.CreationTimeUtc.ToString("o"));
         cmd.Parameters.AddWithValue("$deleted", file.IsDeleted ? 1 : 0);
+        cmd.Parameters.AddWithValue("$isDir", file.IsDirectory ? 1 : 0);
         cmd.Parameters.AddWithValue("$size", file.Size);
         cmd.ExecuteNonQuery();
     }
@@ -108,7 +118,7 @@ public class MetadataDb
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
         var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT RelativePath, LastWriteTimeUtc, CreationTimeUtc, IsDeleted, Size FROM Files";
+        cmd.CommandText = "SELECT RelativePath, LastWriteTimeUtc, CreationTimeUtc, IsDeleted, IsDirectory, Size FROM Files";
 
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -119,7 +129,8 @@ public class MetadataDb
                 LastWriteTimeUtc = DateTime.Parse(reader.GetString(1), null, System.Globalization.DateTimeStyles.RoundtripKind),
                 CreationTimeUtc = DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind),
                 IsDeleted = reader.GetInt32(3) == 1,
-                Size = reader.GetInt64(4)
+                IsDirectory = reader.GetInt32(4) == 1,
+                Size = reader.GetInt64(5)
             });
         }
         return files;

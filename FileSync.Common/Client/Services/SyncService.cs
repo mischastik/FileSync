@@ -30,13 +30,41 @@ public class SyncService
         if (!Directory.Exists(_config.RootPath))
             Directory.CreateDirectory(_config.RootPath);
 
-        // 1. Scan current files
-        var currentFiles = new HashSet<string>();
+        // 1. Scan current paths
+        var currentPaths = new HashSet<string>();
+
+        // 1a. Scan Directories
+        foreach (var dir in Directory.GetDirectories(_config.RootPath, "*", SearchOption.AllDirectories))
+        {
+            var info = new DirectoryInfo(dir);
+            var relativePath = Path.GetRelativePath(_config.RootPath, dir);
+            currentPaths.Add(relativePath);
+
+            var meta = new FileMetadata
+            {
+                RelativePath = relativePath,
+                LastWriteTimeUtc = info.LastWriteTimeUtc,
+                CreationTimeUtc = info.CreationTimeUtc,
+                Size = 0,
+                IsDeleted = false,
+                IsDirectory = true
+            };
+
+            if (deltaOnly && _localState.KnownFiles.TryGetValue(relativePath, out var existingMeta))
+            {
+                if (!existingMeta.IsDeleted && existingMeta.IsDirectory)
+                    continue; // Directory already known and not deleted
+            }
+
+            files.Add(meta);
+        }
+
+        // 1b. Scan Files
         foreach (var file in Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories))
         {
             var info = new FileInfo(file);
             var relativePath = Path.GetRelativePath(_config.RootPath, file);
-            currentFiles.Add(relativePath);
+            currentPaths.Add(relativePath);
 
             var meta = new FileMetadata
             {
@@ -44,7 +72,8 @@ public class SyncService
                 LastWriteTimeUtc = info.LastWriteTimeUtc,
                 CreationTimeUtc = info.CreationTimeUtc,
                 Size = info.Length,
-                IsDeleted = false
+                IsDeleted = false,
+                IsDirectory = false
             };
 
             bool isKnown = _localState.KnownFiles.TryGetValue(relativePath, out var existingMeta);
@@ -56,7 +85,7 @@ public class SyncService
                 // We use a 1-second tolerance for timestamps to handle filesystem/JSON precision differences.
                 bool timestampMatch = Math.Abs((meta.LastWriteTimeUtc - existingMeta.LastWriteTimeUtc).TotalSeconds) < 1;
 
-                if (!existingMeta.IsDeleted && timestampMatch && meta.Size == existingMeta.Size)
+                if (!existingMeta.IsDeleted && !existingMeta.IsDirectory && timestampMatch && meta.Size == existingMeta.Size)
                 {
                     // Skip unchanged version we already successfully synced
                     continue;
@@ -75,14 +104,14 @@ public class SyncService
             files.Add(meta);
         }
 
-        Console.WriteLine($"[Scan] Current on disk: {currentFiles.Count}, Known in State: {_localState.KnownFiles.Count}");
+        Console.WriteLine($"[Scan] Current on disk: {currentPaths.Count}, Known in State: {_localState.KnownFiles.Count}");
 
-        // 2. Check for deletions (Files in KnownFiles but not on disk)
+        // 2. Check for deletions (Paths in KnownFiles but not on disk)
         foreach (var known in _localState.KnownFiles.Values)
         {
-            if (!currentFiles.Contains(known.RelativePath))
+            if (!currentPaths.Contains(known.RelativePath))
             {
-                // File is missing.
+                // Path is missing.
                 if (!known.IsDeleted)
                 {
                     // Newly detected deletion
@@ -105,7 +134,6 @@ public class SyncService
                     }
                     else
                     {
-                        // Return all deletions for UI if needed (though UI filters them out)
                         files.Add(known);
                     }
                 }
@@ -280,11 +308,27 @@ public class SyncService
                     Console.WriteLine($"[SyncService] Deleting local file {serverFile.RelativePath} (Sync from Server)");
                     File.Delete(localPath);
                 }
+                else if (Directory.Exists(localPath))
+                {
+                    Console.WriteLine($"[SyncService] Deleting local directory {serverFile.RelativePath} (Sync from Server)");
+                    Directory.Delete(localPath, true);
+                }
 
                 if (_localState.KnownFiles.ContainsKey(serverFile.RelativePath))
                 {
                     _localState.KnownFiles.Remove(serverFile.RelativePath);
                 }
+                continue;
+            }
+
+            if (serverFile.IsDirectory)
+            {
+                if (!Directory.Exists(localPath))
+                {
+                    Console.WriteLine($"[SyncService] Creating local directory {serverFile.RelativePath} (Sync from Server)");
+                    Directory.CreateDirectory(localPath);
+                }
+                _localState.UpdateFile(serverFile);
                 continue;
             }
 
