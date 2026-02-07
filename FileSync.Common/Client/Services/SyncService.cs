@@ -37,7 +37,7 @@ public class SyncService
         foreach (var dir in Directory.GetDirectories(_config.RootPath, "*", SearchOption.AllDirectories))
         {
             var info = new DirectoryInfo(dir);
-            var relativePath = Path.GetRelativePath(_config.RootPath, dir);
+            var relativePath = Path.GetRelativePath(_config.RootPath, dir).Replace('\\', '/');
             currentPaths.Add(relativePath);
 
             var meta = new FileMetadata
@@ -63,7 +63,7 @@ public class SyncService
         foreach (var file in Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories))
         {
             var info = new FileInfo(file);
-            var relativePath = Path.GetRelativePath(_config.RootPath, file);
+            var relativePath = Path.GetRelativePath(_config.RootPath, file).Replace('\\', '/');
             currentPaths.Add(relativePath);
 
             var meta = new FileMetadata
@@ -224,7 +224,10 @@ public class SyncService
                     case MessageType.FileRequest:
                         // Upload File
                         var relPath = System.Text.Encoding.UTF8.GetString(pkg.Payload);
-                        var fullPath = Path.Combine(_config.RootPath, relPath);
+                        // Ensure native separator for local access
+                        var localRelPath = relPath.Replace('/', Path.DirectorySeparatorChar);
+                        var fullPath = Path.Combine(_config.RootPath, localRelPath);
+
                         if (File.Exists(fullPath))
                         {
                             Console.WriteLine($"[SyncService] Uploading {relPath}...");
@@ -292,7 +295,9 @@ public class SyncService
 
         foreach (var serverFile in serverFiles)
         {
-            var localPath = Path.Combine(_config.RootPath, serverFile.RelativePath);
+            // Normalize for local OS
+            var localRelPath = serverFile.RelativePath.Replace('/', Path.DirectorySeparatorChar);
+            var localPath = Path.Combine(_config.RootPath, localRelPath);
 
             if (serverFile.IsDeleted)
             {

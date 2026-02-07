@@ -154,7 +154,9 @@ public class TcpServer
                         // Update DB to mark as deleted.
                         if (serverFile == null || !serverFile.IsDeleted || clientFile.LastWriteTimeUtc > serverFile.LastWriteTimeUtc)
                         {
-                            var fullPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
+                            var localRelPath = clientFile.RelativePath.Replace('/', Path.DirectorySeparatorChar);
+                            var fullPath = Path.Combine(_config.RootPath, localRelPath);
+
                             if (File.Exists(fullPath))
                             {
                                 Console.WriteLine($"[{pid}:{tid}][Server][{remoteEp}] Deleting file {clientFile.RelativePath} (Sync from Client)");
@@ -179,7 +181,9 @@ public class TcpServer
                     {
                         if (serverFile == null || serverFile.IsDeleted)
                         {
-                            var fullPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
+                            var localRelPath = clientFile.RelativePath.Replace('/', Path.DirectorySeparatorChar);
+                            var fullPath = Path.Combine(_config.RootPath, localRelPath);
+
                             if (!Directory.Exists(fullPath))
                             {
                                 Console.WriteLine($"[{pid}:{tid}][Server][{remoteEp}] Creating directory {clientFile.RelativePath} (Sync from Client)");
@@ -236,7 +240,9 @@ public class TcpServer
                         var resp = await Packet.ReadFromStreamAsync(netStream);
                         if (resp.Type == MessageType.FileResponse)
                         {
-                            var localPath = Path.Combine(_config.RootPath, clientFile.RelativePath);
+                            var localRelPath = clientFile.RelativePath.Replace('/', Path.DirectorySeparatorChar);
+                            var localPath = Path.Combine(_config.RootPath, localRelPath);
+
                             Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
                             await File.WriteAllBytesAsync(localPath, resp.Payload);
                             File.SetLastWriteTimeUtc(localPath, clientFile.LastWriteTimeUtc);
@@ -270,7 +276,8 @@ public class TcpServer
                         {
                             var relPath = System.Text.Encoding.UTF8.GetString(req.Payload);
                             Console.WriteLine($"[Server][{remoteEp}] Client requested {relPath}");
-                            var fullPath = Path.Combine(_config.RootPath, relPath);
+                            var localRelPath = relPath.Replace('/', Path.DirectorySeparatorChar);
+                            var fullPath = Path.Combine(_config.RootPath, localRelPath);
                             if (File.Exists(fullPath))
                             {
                                 var bytes = await File.ReadAllBytesAsync(fullPath);
@@ -316,7 +323,7 @@ public class TcpServer
         foreach (var dir in Directory.GetDirectories(_config.RootPath, "*", SearchOption.AllDirectories))
         {
             var info = new DirectoryInfo(dir);
-            var relativePath = Path.GetRelativePath(_config.RootPath, dir);
+            var relativePath = Path.GetRelativePath(_config.RootPath, dir).Replace('\\', '/');
 
             if (dbFileDict.TryGetValue(relativePath, out var dbEntry))
             {
@@ -349,7 +356,7 @@ public class TcpServer
         foreach (var file in Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories))
         {
             var info = new FileInfo(file);
-            var relativePath = Path.GetRelativePath(_config.RootPath, file);
+            var relativePath = Path.GetRelativePath(_config.RootPath, file).Replace('\\', '/');
 
             if (dbFileDict.TryGetValue(relativePath, out var dbEntry))
             {
@@ -388,7 +395,7 @@ public class TcpServer
 
         var currentPaths = Directory.GetDirectories(_config.RootPath, "*", SearchOption.AllDirectories)
                                         .Concat(Directory.GetFiles(_config.RootPath, "*", SearchOption.AllDirectories))
-                                        .Select(p => Path.GetRelativePath(_config.RootPath, p))
+                                        .Select(p => Path.GetRelativePath(_config.RootPath, p).Replace('\\', '/'))
                                         .ToHashSet();
 
         foreach (var dbFile in dbFiles)
