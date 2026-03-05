@@ -12,4 +12,7 @@ public class ClientConfig
     public string PublicKey { get; set; } = string.Empty;
     public string PrivateKey { get; set; } = string.Empty;
     public string ServerPublicKey { get; set; } = string.Empty; // Manually entered
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ConfigPath { get; set; } = string.Empty;
 }

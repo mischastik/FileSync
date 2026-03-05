@@ -18,9 +18,11 @@ public class LocalState
         _statePath = "client_state.json";
     }
 
-    public LocalState(string rootPath)
+    public LocalState(string configPath)
     {
-        _statePath = "client_state.json";
+        var dir = Path.GetDirectoryName(configPath);
+        if (string.IsNullOrEmpty(dir)) dir = ".";
+        _statePath = Path.Combine(dir, "client_state.json");
         Load();
     }
 

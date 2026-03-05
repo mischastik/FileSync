@@ -45,14 +45,14 @@ echo [Setup] Preparing Client A...
 mkdir "%CLIENT_A%"
 xcopy /E /I /Y /Q "%CLI_BIN%\*" "%CLIENT_A%\" >nul
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe config --server %SERVER_IP% --port %SERVER_PORT% --key "%SERVER_KEY%" --root "Files"
+FileSync.Client.CLI.exe config --config "config.json" --server %SERVER_IP% --port %SERVER_PORT% --key "%SERVER_KEY%" --root "Files"
 popd
 
 echo [Setup] Preparing Client B...
 mkdir "%CLIENT_B%"
 xcopy /E /I /Y /Q "%CLI_BIN%\*" "%CLIENT_B%\" >nul
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe config --server %SERVER_IP% --port %SERVER_PORT% --key "%SERVER_KEY%" --root "Files"
+FileSync.Client.CLI.exe config --config "config.json" --server %SERVER_IP% --port %SERVER_PORT% --key "%SERVER_KEY%" --root "Files"
 popd
 
 :: Create File Roots
@@ -69,12 +69,12 @@ echo Hello World > "%CLIENT_A%\Files\file1.txt"
 
 echo [Sync] Client A Syncing...
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe sync > "sync_create.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_create.log" 2>&1
 popd
 
 echo [Sync] Client B Syncing...
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe sync > "sync_create.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_create.log" 2>&1
 popd
 
 if exist "%CLIENT_B%\Files\file1.txt" (
@@ -99,12 +99,12 @@ echo Modified Content >> "%CLIENT_A%\Files\file1.txt"
 
 echo [Sync] Client A Syncing...
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe sync > "sync_mod.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_mod.log" 2>&1
 popd
 
 echo [Sync] Client B Syncing...
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe sync > "sync_mod.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_mod.log" 2>&1
 popd
 
 findstr "Modified" "%CLIENT_B%\Files\file1.txt" >nul
@@ -124,12 +124,12 @@ del "%CLIENT_A%\Files\file1.txt"
 
 echo [Sync] Client A Syncing...
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe sync > "sync_del.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_del.log" 2>&1
 popd
 
 echo [Sync] Client B Syncing...
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe sync > "sync_del.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_del.log" 2>&1
 popd
 
 if not exist "%CLIENT_B%\Files\file1.txt" (
@@ -146,10 +146,10 @@ echo ==========================================
 echo [Action] Creating conflict.txt in A
 echo Base Content > "%CLIENT_A%\Files\conflict.txt"
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe sync >nul
+FileSync.Client.CLI.exe sync --config "config.json" >nul
 popd
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe sync >nul
+FileSync.Client.CLI.exe sync --config "config.json" >nul
 popd
 
 echo [Action] Modifying B (Old)
@@ -163,17 +163,17 @@ echo New Content > "%CLIENT_A%\Files\conflict.txt"
 
 echo [Sync] Client B pushing 'Old'...
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe sync > "sync_conflict_B1.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_conflict_B1.log" 2>&1
 popd
 
 echo [Sync] Client A pushing 'New'...
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe sync > "sync_conflict_A1.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_conflict_A1.log" 2>&1
 popd
 
 echo [Sync] Client B pulling 'New'...
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe sync > "sync_conflict_B2.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_conflict_B2.log" 2>&1
 popd
 
 findstr "New" "%CLIENT_B%\Files\conflict.txt" >nul
@@ -191,7 +191,7 @@ echo CASE 5: New File with Old Timestamp
 echo ==========================================
 echo [Action] Baseline Sync for A
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe sync >nul
+FileSync.Client.CLI.exe sync --config "config.json" >nul
 popd
 
 echo [Action] Creating old_file.txt in A
@@ -203,12 +203,12 @@ powershell -NoProfile -Command "$p=\"%CLIENT_A%\Files\old_file.txt\"; (Get-Item 
 
 echo [Sync] Client A Syncing...
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe sync > "sync_old_timestamp.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_old_timestamp.log" 2>&1
 popd
 
 echo [Sync] Client B Syncing...
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe sync > "sync_old_timestamp.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_old_timestamp.log" 2>&1
 popd
 echo done.
 
@@ -243,12 +243,12 @@ mkdir "%CLIENT_A%\Files\empty_dir"
 
 echo [Sync] Client A Syncing...
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe sync > "sync_dir.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_dir.log" 2>&1
 popd
 
 echo [Sync] Client B Syncing...
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe sync > "sync_dir.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_dir.log" 2>&1
 popd
 
 if exist "%CLIENT_B%\Files\empty_dir" (
@@ -263,12 +263,12 @@ rmdir "%CLIENT_A%\Files\empty_dir"
 
 echo [Sync] Client A Syncing Cleanup...
 pushd "%CLIENT_A%"
-FileSync.Client.CLI.exe sync > "sync_dir_del.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_dir_del.log" 2>&1
 popd
 
 echo [Sync] Client B Syncing Cleanup...
 pushd "%CLIENT_B%"
-FileSync.Client.CLI.exe sync > "sync_dir_del.log" 2>&1
+FileSync.Client.CLI.exe sync --config "config.json" > "sync_dir_del.log" 2>&1
 popd
 
 if not exist "%CLIENT_B%\Files\empty_dir" (
@@ -292,3 +292,4 @@ echo TEST FAILED
 echo ==========================================
 taskkill /F /IM FileSync.Server.exe >nul 2>&1
 exit /b 1
+

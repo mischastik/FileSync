@@ -31,15 +31,15 @@ The server outputs its address, port, and **Public Key**. Clients need this key 
 ### Client Setup (CLI)
 1. **Configure:**
    ```powershell
-   ./FileSync.Client.CLI.exe config --server <address> --port <port> --key "<server-public-key>" --root "<path-to-sync>"
+   ./FileSync.Client.CLI.exe config --server <address> --port <port> --key "<server-public-key>" --root "<path-to-sync>" [--config <path.json>]
    ```
 2. **Sync:**
    ```powershell
-   ./FileSync.Client.CLI.exe sync
+   ./FileSync.Client.CLI.exe sync [--config <path.json>]
    ```
 3. **Emergency Resync (Clear local state & full sync):**
    ```powershell
-   ./FileSync.Client.CLI.exe resync
+   ./FileSync.Client.CLI.exe resync [--config <path.json>]
    ```
 
 ### Client Setup (GUI)
@@ -104,7 +104,8 @@ Located in the server executable directory. It is generated automatically on fir
 ```
 
 ### Client: `config.json`
-Located in the client executable directory. Created via the `config` command or manually.
+By default, this file is located in the OS-specific application data directory (`%LocalAppData%\FileSyncClient\config.json` on Windows, or `$XDG_DATA_HOME/FileSyncClient/config.json` on Linux/macOS). 
+It can be overridden by passing the `--config <path.json>` argument to the CLI or GUI client. Created via the `config` command or manually.
 
 - **`ServerAddress`**: Hostname or IP of the FileSync server.
 - **`ServerPort`**: Port of the FileSync server.
@@ -125,7 +126,7 @@ Located in the client executable directory. Created via the `config` command or 
 ```
 
 ### Client State: `client_state.json`
-This file tracks the synchronization status and is critical for delta-sync functionality. **Do not edit manually** unless troubleshooting.
+This file tracks the synchronization status and is critical for delta-sync functionality. It is automatically stored in the exact same directory as the active `config.json` file. **Do not edit manually** unless troubleshooting.
 
 - **`KnownFiles`**: A dictionary tracking every file's `RelativePath`, `LastWriteTimeUtc`, and `Size`.
 - **`LastSync`**: Timestamp of the last successful full synchronization.

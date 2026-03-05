@@ -9,11 +9,24 @@ namespace FileSync.Client.CLI;
 
 class Program
 {
-    private static readonly string ConfigPath = "config.json"; // Same as GUI for simplicity? Or separate? 
-    // Argument: If deployed to same folder, they share config.json. Good for testing.
+    private static string ConfigPath = "config.json";
 
     static async Task Main(string[] args)
     {
+        ConfigPath = ClientEnv.GetConfigPathFromArgs(args);
+
+        // Strip out --config argument so it doesn't interfere with existing parsing
+        var argsList = new System.Collections.Generic.List<string>(args);
+        for (int i = 0; i < argsList.Count; i++)
+        {
+            if (argsList[i] == "--config" && i + 1 < argsList.Count)
+            {
+                argsList.RemoveRange(i, 2);
+                break;
+            }
+        }
+        args = argsList.ToArray();
+
         if (args.Length == 0)
         {
             PrintUsage();
@@ -49,9 +62,10 @@ class Program
     private static void PrintUsage()
     {
         Console.WriteLine("FileSync CLI");
+        Console.WriteLine($"Default Config: {ClientEnv.GetDefaultConfigPath()}");
         Console.WriteLine("Usage:");
-        Console.WriteLine("  config --server <address> --port <port> [--key <pubkey>] [--root <path>]");
-        Console.WriteLine("  sync [--force]");
+        Console.WriteLine("  config --server <address> --port <port> [--key <pubkey>] [--root <path>] [--config <path>]");
+        Console.WriteLine("  sync [--force] [--config <path>]");
         Console.WriteLine("  resync");
         Console.WriteLine("  unregister");
     }
@@ -178,6 +192,7 @@ class Program
             SaveConfig(config);
         }
 
+        config.ConfigPath = ConfigPath; // Set the resolved path
         return config;
     }
 

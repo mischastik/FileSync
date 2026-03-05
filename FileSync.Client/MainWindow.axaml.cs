@@ -12,10 +12,11 @@ namespace FileSync.Client;
 public partial class MainWindow : Window
 {
     private ClientConfig _config;
-    private readonly string _configPath = "config.json";
+    private readonly string _configPath;
 
     public MainWindow()
     {
+        _configPath = FileSync.Common.Client.Config.ClientEnv.GetConfigPathFromArgs(Program.Args);
         InitializeComponent();
         LoadConfig();
     }
@@ -46,9 +47,13 @@ public partial class MainWindow : Window
         if (newlyCreated)
         {
             // Initial save to persist keys and ID
+            var dir = Path.GetDirectoryName(_configPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_configPath, json);
         }
+
+        _config.ConfigPath = _configPath;
 
         ServerAddressBox.Text = _config.ServerAddress;
         ServerPortBox.Text = _config.ServerPort.ToString();
@@ -65,6 +70,8 @@ public partial class MainWindow : Window
         _config.ServerPublicKey = ServerKeyBox.Text ?? "";
         _config.RootPath = RootPathBox.Text ?? "ClientFiles";
 
+        var dir = Path.GetDirectoryName(_configPath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(_configPath, json);
         StatusText.Text = "Configuration Saved.";
@@ -100,7 +107,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var state = new FileSync.Common.Client.Data.LocalState(_config.RootPath);
+            var state = new FileSync.Common.Client.Data.LocalState(_config.ConfigPath);
             state.Reset();
             state.Save();
 

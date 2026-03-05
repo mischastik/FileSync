@@ -20,7 +20,7 @@ public class SyncService
     public SyncService(ClientConfig config)
     {
         _config = config;
-        _localState = new Data.LocalState(_config.RootPath);
+        _localState = new Data.LocalState(_config.ConfigPath);
         Console.WriteLine($"[SyncService] Initialized with RootPath: {Path.GetFullPath(_config.RootPath)}");
     }
 
