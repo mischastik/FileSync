@@ -35,11 +35,15 @@ The server outputs its address, port, and **Public Key**. Clients need this key 
    ```
 2. **Sync:**
    ```powershell
-   ./FileSync.Client.CLI.exe sync [--config <path.json>]
+   ./FileSync.Client.CLI.exe sync [--force] [--config <path.json>]
    ```
 3. **Emergency Resync (Clear local state & full sync):**
    ```powershell
    ./FileSync.Client.CLI.exe resync [--config <path.json>]
+   ```
+4. **Unregister (Remove client identity from server):**
+   ```powershell
+   ./FileSync.Client.CLI.exe unregister [--config <path.json>]
    ```
 
 ### Client Setup (GUI)
@@ -77,8 +81,8 @@ Updates are always initiated manually by the user.
 3. **Reconciliation**: Client downloads new/modified files and updates its local state only upon successful completion.
 
 ### Registration & File Handling
-- **IDs**: Each client generates a unique 64-bit ID.
-- **Deletions**: The server tracks deletion events to propagate them to all clients before pruning records.
+- **IDs**: Each client generates a unique GUID as its client ID.
+- **Deletions**: The server tracks deletion events (tombstones) so they propagate to all clients. Tombstone records are currently kept indefinitely and are not pruned from the server database.
 - **Unregistration**: Users can unregister to clear their identity from the server's known client list.
 
 ## Configuration Files
@@ -134,6 +138,6 @@ This file tracks the synchronization status and is critical for delta-sync funct
 ## Technologies
 - **Runtime**: .NET 9
 - **GUI**: Avalonia UI
-- **Database**: LiteDB (Server-side metadata)
+- **Database**: SQLite via `Microsoft.Data.Sqlite` (Server-side metadata)
 - **Networking**: System.Net.Sockets (Async)
 
