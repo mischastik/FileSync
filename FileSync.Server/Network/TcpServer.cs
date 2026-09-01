@@ -60,8 +60,10 @@ public class TcpServer
         {
             try
             {
-                // 1. Handshake or Registration actions
-                // Expect Handshake or Unregister Packet
+                byte[]? sessionKey = null;
+
+                // 0. Handshake or Registration actions
+                // Expect SessionKeyExchange, Handshake, or Unregister Packet
                 Packet pkg;
                 try
                 {
@@ -73,6 +75,21 @@ public class TcpServer
                     return;
                 }
 
+                if (pkg.Type == MessageType.SessionKeyExchange)
+                {
+                    sessionKey = CryptoHelper.Decrypt(pkg.Payload, _config.PrivateKey);
+                    Console.WriteLine($"[Server][{remoteEp}] Session key established.");
+
+                    try
+                    {
+                        pkg = await Packet.ReadFromStreamAsync(netStream, sessionKey);
+                    }
+                    catch (EndOfStreamException)
+                    {
+                        return;
+                    }
+                }
+
                 Console.WriteLine($"[Server][{remoteEp}] Received Packet Type: {pkg.Type}, Payload Length: {pkg.Payload.Length}");
 
                 if (pkg.Type == MessageType.Unregister)
@@ -80,6 +97,8 @@ public class TcpServer
                     var idToUnreg = System.Text.Encoding.UTF8.GetString(pkg.Payload);
                     _db.UnregisterClient(idToUnreg);
                     Console.WriteLine($"[Server][{remoteEp}] Unregistered client: {idToUnreg}");
+                    var unregAck = new Packet { Type = MessageType.Handshake, Payload = System.Text.Encoding.UTF8.GetBytes("OK") };
+                    await WritePacketAsync(netStream, unregAck, remoteEp, sessionKey);
                     return;
                 }
 
@@ -117,18 +136,18 @@ public class TcpServer
                     {
                         Console.WriteLine($"[Server][{remoteEp}][Security] Client {clientId} failed validation: Public Key Mismatch!");
                         var err = new Packet { Type = MessageType.Error, Payload = System.Text.Encoding.UTF8.GetBytes("Invalid Public Key") };
-                        await WritePacketAsync(netStream, err, remoteEp);
+                        await WritePacketAsync(netStream, err, remoteEp, sessionKey);
                         return;
                     }
                 }
 
                 // Send Handshake ACK
                 var ack = new Packet { Type = MessageType.Handshake, Payload = System.Text.Encoding.UTF8.GetBytes("OK") };
-                await WritePacketAsync(netStream, ack, remoteEp);
+                await WritePacketAsync(netStream, ack, remoteEp, sessionKey);
 
                 // 2. Wait for Client's List (Step 1)
                 Console.WriteLine($"[Server][{remoteEp}] Waiting for Client List Request...");
-                var clientListPkg = await Packet.ReadFromStreamAsync(netStream);
+                var clientListPkg = await Packet.ReadFromStreamAsync(netStream, sessionKey);
                 if (clientListPkg.Type != MessageType.ListRequest)
                 {
                     Console.WriteLine($"[Server][{remoteEp}] Expected ListRequest, got {clientListPkg.Type}");
@@ -235,9 +254,9 @@ public class TcpServer
                             Type = MessageType.FileRequest,
                             Payload = System.Text.Encoding.UTF8.GetBytes(clientFile.RelativePath)
                         };
-                        await WritePacketAsync(netStream, req, remoteEp);
+                        await WritePacketAsync(netStream, req, remoteEp, sessionKey);
 
-                        var resp = await Packet.ReadFromStreamAsync(netStream);
+                        var resp = await Packet.ReadFromStreamAsync(netStream, sessionKey);
                         if (resp.Type == MessageType.FileResponse)
                         {
                             var localRelPath = clientFile.RelativePath.Replace('/', Path.DirectorySeparatorChar);
@@ -263,7 +282,7 @@ public class TcpServer
                     Type = MessageType.ListResponse,
                     Payload = JsonSerializer.SerializeToUtf8Bytes(serverFiles)
                 };
-                await WritePacketAsync(netStream, listResp, remoteEp);
+                await WritePacketAsync(netStream, listResp, remoteEp, sessionKey);
 
                 // 4. Serve requested files
                 Console.WriteLine($"[Server][{remoteEp}] Waiting for client file requests...");
@@ -271,7 +290,7 @@ public class TcpServer
                 {
                     try
                     {
-                        var req = await Packet.ReadFromStreamAsync(netStream);
+                        var req = await Packet.ReadFromStreamAsync(netStream, sessionKey);
                         if (req.Type == MessageType.FileRequest)
                         {
                             var relPath = System.Text.Encoding.UTF8.GetString(req.Payload);
@@ -281,11 +300,11 @@ public class TcpServer
                             if (File.Exists(fullPath))
                             {
                                 var bytes = await File.ReadAllBytesAsync(fullPath);
-                                await WritePacketAsync(netStream, new Packet { Type = MessageType.FileResponse, Payload = bytes }, remoteEp);
+                                await WritePacketAsync(netStream, new Packet { Type = MessageType.FileResponse, Payload = bytes }, remoteEp, sessionKey);
                             }
                             else
                             {
-                                await WritePacketAsync(netStream, new Packet { Type = MessageType.Error }, remoteEp);
+                                await WritePacketAsync(netStream, new Packet { Type = MessageType.Error }, remoteEp, sessionKey);
                             }
                         }
                         else if (req.Type == MessageType.EndOfSync)
@@ -413,11 +432,11 @@ public class TcpServer
         return dbFiles;
     }
 
-    private async Task WritePacketAsync(NetworkStream stream, Common.Protocol.Packet packet, EndPoint? remoteEp)
+    private async Task WritePacketAsync(NetworkStream stream, Common.Protocol.Packet packet, EndPoint? remoteEp, byte[]? sessionKey = null)
     {
         int pid = Environment.ProcessId;
         int tid = Environment.CurrentManagedThreadId;
         Console.WriteLine($"[{pid}:{tid}][Server][{remoteEp}] Sending Packet Type: {packet.Type}, Payload Length: {packet.Payload.Length}");
-        await packet.WriteToStreamAsync(stream);
+        await packet.WriteToStreamAsync(stream, sessionKey);
     }
 }

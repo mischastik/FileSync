@@ -7,6 +7,7 @@ namespace FileSync.Common.Protocol;
 
 public enum MessageType
 {
+    SessionKeyExchange = 0,
     Handshake = 1,
     ListRequest = 2,
     ListResponse = 3,
@@ -22,18 +23,17 @@ public class Packet
     public MessageType Type { get; set; }
     public byte[] Payload { get; set; } = Array.Empty<byte>();
 
+    // Deprecated, use Serialize(sessionKey) instead.
     public byte[] Serialize()
     {
-        using var ms = new MemoryStream();
-        using var writer = new BinaryWriter(ms);
-        writer.Write((int)Type);
-        writer.Write(Payload.Length);
-        writer.Write(Payload);
-        return ms.ToArray();
+        #pragma warning disable CS8625 // Unmögliche Konvertierung eines NULL-Literals...
+        return Serialize(null);
+        #pragma warning restore CS8625
     }
 
     public static Packet Deserialize(byte[] data)
     {
+        // Internal/Legacy only, does not support AES unwrap properly without key.
         using var ms = new MemoryStream(data);
         using var reader = new BinaryReader(ms);
         var type = (MessageType)reader.ReadInt32();
@@ -43,7 +43,7 @@ public class Packet
     }
 
     // Async version
-    public static async Task<Packet> ReadFromStreamAsync(Stream stream, System.Threading.CancellationToken ct = default)
+    public static async Task<Packet> ReadFromStreamAsync(Stream stream, byte[]? sessionKey = null, System.Threading.CancellationToken ct = default)
     {
         // Read Type (4 bytes) + Length (4 bytes) = 8 bytes header
         byte[] header = new byte[8];
@@ -71,14 +71,45 @@ public class Packet
             offset += read;
         }
 
-        return new Packet { Type = (MessageType)typeInt, Payload = payload };
+        byte[] actualPayload = payload;
+        if (sessionKey != null && typeInt != (int)MessageType.SessionKeyExchange)
+        {
+            if (payload.Length < 16) throw new InvalidDataException("Payload too small to contain IV.");
+            byte[] iv = new byte[16];
+            byte[] ciphertext = new byte[payload.Length - 16];
+            Buffer.BlockCopy(payload, 0, iv, 0, 16);
+            Buffer.BlockCopy(payload, 16, ciphertext, 0, ciphertext.Length);
+            actualPayload = Security.CryptoHelper.DecryptAes(ciphertext, sessionKey, iv);
+        }
+
+        return new Packet { Type = (MessageType)typeInt, Payload = actualPayload };
     }
 
-    public async Task WriteToStreamAsync(Stream stream, System.Threading.CancellationToken ct = default)
+    public async Task WriteToStreamAsync(Stream stream, byte[]? sessionKey = null, System.Threading.CancellationToken ct = default)
     {
-        var data = Serialize();
+        var data = Serialize(sessionKey);
         await stream.WriteAsync(data.AsMemory(), ct);
         await stream.FlushAsync(ct);
+    }
+
+    public byte[] Serialize(byte[]? sessionKey = null)
+    {
+        byte[] finalPayload = Payload;
+        if (sessionKey != null && Type != MessageType.SessionKeyExchange)
+        {
+            var iv = Security.CryptoHelper.GenerateRandomBytes(16);
+            var ciphertext = Security.CryptoHelper.EncryptAes(Payload, sessionKey, iv);
+            finalPayload = new byte[16 + ciphertext.Length];
+            Buffer.BlockCopy(iv, 0, finalPayload, 0, 16);
+            Buffer.BlockCopy(ciphertext, 0, finalPayload, 16, ciphertext.Length);
+        }
+
+        using var ms = new MemoryStream();
+        using var writer = new BinaryWriter(ms);
+        writer.Write((int)Type);
+        writer.Write(finalPayload.Length);
+        writer.Write(finalPayload);
+        return ms.ToArray();
     }
 
     // Keep sync ReadFromStream for now if needed, but we should transition.
@@ -111,4 +142,6 @@ public class Packet
 
         return new Packet { Type = (MessageType)typeInt, Payload = payload };
     }
+    // Note: ReadFromStream (sync) is deprecated and does not support the new AES workflow. 
+    // Wait for callers to switch to Async.
 }

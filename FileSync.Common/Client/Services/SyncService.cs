@@ -16,6 +16,7 @@ public class SyncService
 {
     private readonly ClientConfig _config;
     private readonly Data.LocalState _localState;
+    private byte[]? _sessionKey;
 
     public SyncService(ClientConfig config)
     {
@@ -154,13 +155,29 @@ public class SyncService
             await client.ConnectAsync(_config.ServerAddress, _config.ServerPort);
             using var stream = client.GetStream();
 
+            _sessionKey = Security.CryptoHelper.GenerateRandomBytes(32);
+            var encryptedKey = Security.CryptoHelper.Encrypt(_sessionKey, _config.ServerPublicKey);
+            var keyExchangePacket = new Packet
+            {
+                Type = MessageType.SessionKeyExchange,
+                Payload = encryptedKey
+            };
+            await WritePacketAsync(stream, keyExchangePacket);
+
             var unreg = new Packet
             {
                 Type = MessageType.Unregister,
                 Payload = System.Text.Encoding.UTF8.GetBytes(_config.ClientId)
             };
             await WritePacketAsync(stream, unreg);
-            Console.WriteLine("[SyncService] Unregister request sent.");
+
+            var response = await ReadPacketAsync(stream);
+            if (response.Type == MessageType.Error)
+            {
+                var msg = System.Text.Encoding.UTF8.GetString(response.Payload);
+                throw new Exception($"Server rejected unregister request: {msg}");
+            }
+            Console.WriteLine("[SyncService] Unregister confirmed by server.");
         }
         catch (Exception ex)
         {
@@ -180,7 +197,17 @@ public class SyncService
             await client.ConnectAsync(_config.ServerAddress, _config.ServerPort);
             using var stream = client.GetStream();
 
-            // --- 0. Handshake ---
+            // --- 0. Session Key Exchange ---
+            _sessionKey = Security.CryptoHelper.GenerateRandomBytes(32);
+            var encryptedKey = Security.CryptoHelper.Encrypt(_sessionKey, _config.ServerPublicKey);
+            var keyExchangePacket = new Packet
+            {
+                Type = MessageType.SessionKeyExchange,
+                Payload = encryptedKey
+            };
+            await WritePacketAsync(stream, keyExchangePacket);
+
+            // --- 1. Handshake ---
             var handshakeData = new { ClientId = _config.ClientId, PublicKey = _config.PublicKey };
             var handshake = new Packet
             {
@@ -375,12 +402,12 @@ public class SyncService
     private async Task WritePacketAsync(NetworkStream stream, Packet packet)
     {
         Console.WriteLine($"[SyncService] Sending Packet Type: {packet.Type}, Payload Length: {packet.Payload.Length}");
-        await packet.WriteToStreamAsync(stream);
+        await packet.WriteToStreamAsync(stream, _sessionKey);
     }
 
     private async Task<Packet> ReadPacketAsync(NetworkStream stream)
     {
-        var pkg = await Packet.ReadFromStreamAsync(stream);
+        var pkg = await Packet.ReadFromStreamAsync(stream, _sessionKey);
         Console.WriteLine($"[SyncService] Received Packet Type: {pkg.Type}, Payload Length: {pkg.Payload.Length}");
         return pkg;
     }

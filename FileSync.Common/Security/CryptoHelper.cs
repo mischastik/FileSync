@@ -26,6 +26,45 @@ public static class CryptoHelper
         rsa.ImportRSAPrivateKey(Convert.FromBase64String(privateKey), out _);
         return rsa.Decrypt(data, RSAEncryptionPadding.OaepSHA256);
     }
-    
-    // For hybrid encryption (AES session key) - implementation TBD based on need
+
+    public static byte[] GenerateRandomBytes(int length)
+    {
+        var bytes = new byte[length];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(bytes);
+        return bytes;
+    }
+
+    public static byte[] EncryptAes(byte[] data, byte[] key, byte[] iv)
+    {
+        using var aes = Aes.Create();
+        aes.Key = key;
+        aes.IV = iv;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+
+        using var encryptor = aes.CreateEncryptor();
+        using var ms = new MemoryStream();
+        using (var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
+        {
+            cs.Write(data, 0, data.Length);
+        }
+        return ms.ToArray();
+    }
+
+    public static byte[] DecryptAes(byte[] data, byte[] key, byte[] iv)
+    {
+        using var aes = Aes.Create();
+        aes.Key = key;
+        aes.IV = iv;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+
+        using var decryptor = aes.CreateDecryptor();
+        using var ms = new MemoryStream(data);
+        using var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read);
+        using var tempMs = new MemoryStream();
+        cs.CopyTo(tempMs);
+        return tempMs.ToArray();
+    }
 }
